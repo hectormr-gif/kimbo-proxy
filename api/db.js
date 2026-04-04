@@ -12,6 +12,7 @@ const ALLOWED_KEYS = [
   'search_log',
   'team',
   'custom_sources',
+  'tokens',
 ];
 
 const DEFAULTS = {
@@ -22,6 +23,7 @@ const DEFAULTS = {
   search_log:           [],
   team:                 ['Ferni', 'Malu', 'Gonzalo', 'Héctor'],
   custom_sources:       {},
+  tokens:               { input: 0, output: 0, calls: 0, historial: [] },
 };
 
 async function redis(cmd, ...args) {
