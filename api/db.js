@@ -1,8 +1,8 @@
 // api/db.js — Kimbo Prospector shared database
 // Upstash Redis via REST API (env vars injected by Vercel)
 
-const REDIS_URL   = process.env.UPSTASH_REDIS_REST_URL;
-const REDIS_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN;
+const REDIS_URL   = process.env.KV_REST_API_URL;
+const REDIS_TOKEN = process.env.KV_REST_API_TOKEN;
 
 const ALLOWED_KEYS = [
   'promociones',
