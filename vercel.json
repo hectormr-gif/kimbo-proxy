@@ -1,0 +1,6 @@
+{
+  "rewrites": [
+    { "source": "/prospector", "destination": "/public/index.html" },
+    { "source": "/api/(.*)", "destination": "/api/$1" }
+  ]
+}
