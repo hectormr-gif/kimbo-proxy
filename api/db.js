@@ -25,28 +25,33 @@ const DEFAULTS = {
 };
 
 async function redis(cmd, ...args) {
-  const body = JSON.stringify([cmd, ...args]);
-  const res  = await fetch(`${REDIS_URL}`, {
+  const res = await fetch(`${REDIS_URL}`, {
     method:  'POST',
     headers: {
       Authorization:  `Bearer ${REDIS_TOKEN}`,
       'Content-Type': 'application/json',
     },
-    body,
+    body: JSON.stringify([cmd, ...args]),
   });
   const json = await res.json();
   return json.result;
 }
 
-function cors(res) {
-  res.setHeader('Access-Control-Allow-Origin',  '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET,PUT,OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-}
+const CORS_HEADERS = {
+  'Access-Control-Allow-Origin':  '*',
+  'Access-Control-Allow-Methods': 'GET, PUT, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+  'Access-Control-Max-Age':       '86400',
+};
 
 export default async function handler(req, res) {
-  cors(res);
-  if (req.method === 'OPTIONS') return res.status(200).end();
+  // CORS en todas las respuestas sin excepcion
+  Object.entries(CORS_HEADERS).forEach(([k, v]) => res.setHeader(k, v));
+
+  // Preflight OPTIONS — el navegador lo manda antes del fetch real
+  if (req.method === 'OPTIONS') {
+    return res.status(204).end();
+  }
 
   const { key } = req.query;
 
@@ -54,24 +59,21 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'Invalid key' });
   }
 
-  // ── GET — leer valor ──────────────────────────────────────────
+  // GET — leer valor
   if (req.method === 'GET') {
     try {
       const raw = await redis('GET', `kimbo:${key}`);
-      if (raw === null) {
-        return res.status(200).json(DEFAULTS[key]);
-      }
+      if (raw === null) return res.status(200).json(DEFAULTS[key]);
       return res.status(200).json(typeof raw === 'string' ? JSON.parse(raw) : raw);
     } catch (e) {
       return res.status(500).json({ error: e.message });
     }
   }
 
-  // ── PUT — guardar valor completo ──────────────────────────────
+  // PUT — guardar valor completo
   if (req.method === 'PUT') {
     try {
-      const data = req.body;
-      await redis('SET', `kimbo:${key}`, JSON.stringify(data));
+      await redis('SET', `kimbo:${key}`, JSON.stringify(req.body));
       return res.status(200).json({ ok: true });
     } catch (e) {
       return res.status(500).json({ error: e.message });
