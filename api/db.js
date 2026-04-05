@@ -1,31 +1,36 @@
 // api/db.js — Kimbo Prospector shared database
 // Upstash Redis via REST API (env vars injected by Vercel)
-
 const REDIS_URL   = process.env.KV_REST_API_URL;
 const REDIS_TOKEN = process.env.KV_REST_API_TOKEN;
 
 const ALLOWED_KEYS = [
   'promociones',
   'mercado',
+  'agencias',
+  'partners',
   'zona_history',
   'zona_history_mercado',
+  'zona_history_partners',
   'search_log',
+  'session_log',
   'team',
   'custom_sources',
   'tokens',
-  'agencias',
 ];
 
 const DEFAULTS = {
-  promociones:          [],
-  mercado:              [],
-  zona_history:         {},
-  zona_history_mercado: {},
-  search_log:           [],
-  team:                 ['Ferni', 'Malu', 'Gonzalo', 'Héctor'],
-  custom_sources:       {},
-  tokens:               { input: 0, output: 0, calls: 0, historial: [] },
-  agencias:             [],
+  promociones:           [],
+  mercado:               [],
+  agencias:              [],
+  partners:              [],
+  zona_history:          {},
+  zona_history_mercado:  {},
+  zona_history_partners: {},
+  search_log:            [],
+  session_log:           [],
+  team:                  ['Ferni', 'Malu', 'Gonzalo', 'Héctor'],
+  custom_sources:        {},
+  tokens:                { input: 0, output: 0, calls: 0, historial: [] },
 };
 
 async function redis(cmd, ...args) {
@@ -49,16 +54,13 @@ const CORS_HEADERS = {
 };
 
 export default async function handler(req, res) {
-  // CORS en todas las respuestas sin excepcion
   Object.entries(CORS_HEADERS).forEach(([k, v]) => res.setHeader(k, v));
 
-  // Preflight OPTIONS — el navegador lo manda antes del fetch real
   if (req.method === 'OPTIONS') {
     return res.status(204).end();
   }
 
   const { key } = req.query;
-
   if (!key || !ALLOWED_KEYS.includes(key)) {
     return res.status(400).json({ error: 'Invalid key' });
   }
@@ -67,7 +69,7 @@ export default async function handler(req, res) {
   if (req.method === 'GET') {
     try {
       const raw = await redis('GET', `kimbo:${key}`);
-      if (raw === null) return res.status(200).json(DEFAULTS[key]);
+      if (raw === null) return res.status(200).json(DEFAULTS[key] ?? []);
       return res.status(200).json(typeof raw === 'string' ? JSON.parse(raw) : raw);
     } catch (e) {
       return res.status(500).json({ error: e.message });
