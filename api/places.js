@@ -1,5 +1,4 @@
-// api/places.js — Buscar agencias inmobiliarias via Google Places API (New)
-
+// api/places.js — Google Places API (New) — agencias + prescriptores
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin':  '*',
   'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
@@ -65,7 +64,7 @@ export default async function handler(req, res) {
   Object.entries(CORS_HEADERS).forEach(([k, v]) => res.setHeader(k, v));
   if (req.method === 'OPTIONS') return res.status(204).end();
 
-  const { zona } = req.query;
+  const { zona, query, mode } = req.query;
   const apiKey = process.env.GOOGLE_PLACES_API_KEY;
 
   if (!apiKey) return res.status(500).json({ error: 'GOOGLE_PLACES_API_KEY not configured' });
@@ -75,6 +74,26 @@ export default async function handler(req, res) {
   if (!coords) return res.status(400).json({ error: `Zona "${zona}" not found` });
 
   try {
+    // ── MODE: single query (prescriptores — called in parallel from frontend) ──
+    if (query) {
+      const results = await searchPlaces(query, coords, apiKey);
+      const places = results
+        .filter(p => p.businessStatus !== 'CLOSED_PERMANENTLY')
+        .map(p => ({
+          google_id:   p.id,
+          nombre:      p.displayName?.text || '',
+          direccion:   p.formattedAddress || '',
+          telefono:    p.internationalPhoneNumber || '',
+          web:         p.websiteUri || '',
+          rating:      p.rating || null,
+          num_resenas: p.userRatingCount || 0,
+          tipos:       p.types || [],
+          zona:        zona,
+        }));
+      return res.status(200).json({ places, total: places.length });
+    }
+
+    // ── MODE: agencias (default — multiple queries, filter to real estate) ──
     const queries = [
       `inmobiliaria ${zona}`,
       `agencia inmobiliaria lujo ${zona}`,
