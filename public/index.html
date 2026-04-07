@@ -2111,7 +2111,6 @@ select.form-control optgroup {
 <div class="toast" id="toast"></div>
 
 <script>
-
 const DB_KEY = 'kimbo_promociones';
 const ZONA_HISTORY_KEY = 'kimbo_zona_history';
 const SEARCH_LOG_KEY = 'kimbo_search_log';
@@ -2600,6 +2599,30 @@ async function migrateZonaHistoryIfNeeded() {
   }
 }
 // ── FIN MIGRACIÓN ──────────────────────────────────────────────
+
+// ── LIMPIEZA ZONAS CON BÚSQUEDA FALLIDA ───────────────────────
+async function cleanInvalidZonaHistory(zonasToRemove) {
+  try {
+    delete _cache['zona_history'];
+    const h = await cloudGet('zona_history') || {};
+    let changed = false;
+    zonasToRemove.forEach(function(zona) {
+      if (h[zona]) {
+        delete h[zona];
+        changed = true;
+        console.log('[Kimbo] Eliminada entrada de zona_history para:', zona);
+      }
+    });
+    if (changed) {
+      await cloudSet('zona_history', h);
+      delete _cache['zona_history'];
+    }
+  } catch(e) {
+    console.warn('[Kimbo] Error limpiando zona_history:', e.message);
+  }
+}
+// ── FIN LIMPIEZA ──────────────────────────────────────────────
+
 
 async function saveZonaHistory(zona, tipo, encontradas) {
   const h = await cloudGet('zona_history') || {};
@@ -5719,6 +5742,7 @@ function kimboInit() {
     try {
       await preloadCloudData();
     await migrateZonaHistoryIfNeeded();
+    await cleanInvalidZonaHistory(['Madrid capital','Madrid norte','Madrid oeste (Pozuelo, Las Rozas, Majadahonda)','Madrid sur','Madrid este']);
     await showBillingWarningIfNeeded();
       await loadTokenStats();
       await renderDashboard();
@@ -6683,7 +6707,30 @@ async function migrarScoringExistentes() {
   showToast(sinScoring.length + ' promociones clasificadas con scoring local');
   return sinScoring.length;
 }
-// ── FIN MIGRACIÓN ─────────────────────────────────────────────────
+// ── FIN MIGRACIÓN ──────────────────────────────────────────────
+
+// ── LIMPIEZA ZONAS CON BÚSQUEDA FALLIDA ───────────────────────
+async function cleanInvalidZonaHistory(zonasToRemove) {
+  try {
+    delete _cache['zona_history'];
+    const h = await cloudGet('zona_history') || {};
+    let changed = false;
+    zonasToRemove.forEach(function(zona) {
+      if (h[zona]) {
+        delete h[zona];
+        changed = true;
+        console.log('[Kimbo] Eliminada entrada de zona_history para:', zona);
+      }
+    });
+    if (changed) {
+      await cloudSet('zona_history', h);
+      delete _cache['zona_history'];
+    }
+  } catch(e) {
+    console.warn('[Kimbo] Error limpiando zona_history:', e.message);
+  }
+}
+// ── FIN LIMPIEZA ──────────────────────────────────────────────
 
 // ── SCORING LOCAL (para promociones sin datos de Claude) ──────────
 function calcularScoreLocal(p) {
@@ -7234,7 +7281,6 @@ if (document.readyState === 'loading') {
 } else {
   kimboInit();
 }
-
 </script>
 </body>
 </html>
