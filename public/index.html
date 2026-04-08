@@ -4003,170 +4003,198 @@ REDES SOCIALES Y SEÑALES TEMPRANAS:
       'Sevilla capital sur y Bellavista'
     ] : [zona];
 
+    function getSourceBatches(zonaActual) {
+      const batches = [];
+      if (sources.bop || sources.noticias) {
+        batches.push({
+          key: 'tempranas',
+          label: 'licencias + señales tempranas',
+          prompt: `Eres un agente de prospección comercial especializado en detectar proyectos residenciales en FASES TEMPRANAS para Kimbo Smart. Hoy es ${hoy}.
+
+ZONA: ${zonaActual}
+${tipoFiltro}
+
+OBJETIVO: encontrar promociones residenciales NUEVAS o poco visibles en fase temprana. Prioriza suelo adquirido, proyecto básico, licencia solicitada/concedida, anuncio de nuevo desarrollo, alianza con arquitectos, lanzamiento inminente.
+
+FUENTES PRIORITARIAS:
+- boletines oficiales, ayuntamientos, licencias urbanísticas
+- COAM / colegios de arquitectos / visados
+- prensa local y sectorial con noticias de nuevos desarrollos
+- LinkedIn y notas de promotoras anunciando nuevos proyectos
+
+INSTRUCCIONES:
+- incluye promociones aunque falten algunos campos
+- si la fase es dudosa pero el proyecto parece real, inclúyelo
+- no excluyas por no tener precio o número exacto de viviendas
+- si hay varias fuentes sobre la misma promoción, usa la más fiable
+
+IDs ya en BD (solo como referencia, NO uses esto para excluir por tu cuenta): ${idsConocidos.slice(-100).join(', ') || 'ninguno'}
+${getCustomSourcesForPrompt('promo')}
+
+Responde SOLO con JSON array, sin markdown. Si no hay resultados, responde [].
+
+Cada objeto: ${camposJSON}`
+        });
+      }
+      if (sources.idealista) {
+        batches.push({
+          key: 'portales',
+          label: 'portales obra nueva',
+          prompt: `Eres un agente de prospección comercial para Kimbo Smart. Hoy es ${hoy}.
+
+ZONA: ${zonaActual}
+${tipoFiltro}
+
+OBJETIVO: encontrar TODAS las promociones residenciales visibles en portales y agregadores de obra nueva.
+
+FUENTES PRIORITARIAS:
+- Idealista obra nueva
+- Fotocasa obra nueva
+- viviendasnuevas.com
+- Pisos.com obra nueva
+- Habitaclia / Lucas Fox / Aproperties si aplica
+
+INSTRUCCIONES:
+- incluye promociones en proyecto, en construcción y en comercialización
+- no hace falta que sea fase temprana
+- si es una promoción real y activa, inclúyela
+- prioriza cobertura total sobre perfección
+
+Responde SOLO con JSON array, sin markdown. Si no hay resultados, responde [].
+
+Cada objeto: ${camposJSON}`
+        });
+      }
+      if (sources.promotoras) {
+        batches.push({
+          key: 'promotoras',
+          label: 'webs de promotoras',
+          prompt: `Eres un agente de prospección comercial para Kimbo Smart. Hoy es ${hoy}.
+
+ZONA: ${zonaActual}
+${tipoFiltro}
+
+OBJETIVO: rastrear webs oficiales de promotoras para encontrar promociones actuales o próximas.
+
+FUENTES PRIORITARIAS:
+- webs oficiales de promotoras nacionales y locales
+- secciones “próximas promociones”, “en desarrollo”, “obra nueva”, “pipeline”, “residencial”
+
+PROMOTORAS A PRIORIZAR:
+${promotoras_locales}
+
+INSTRUCCIONES:
+- si una promoción aparece en la web oficial, inclúyela aunque no salga en portales
+- si hay poca información, completa solo lo confirmado
+- si la promoción pertenece claramente a ${zonaActual}, inclúyela
+
+Responde SOLO con JSON array, sin markdown. Si no hay resultados, responde [].
+
+Cada objeto: ${camposJSON}`
+        });
+      }
+      if (sources.noticias) {
+        batches.push({
+          key: 'medios',
+          label: 'medios inmobiliarios',
+          prompt: `Eres un agente de prospección comercial para Kimbo Smart. Hoy es ${hoy}.
+
+ZONA: ${zonaActual}
+${tipoFiltro}
+
+OBJETIVO: encontrar promociones y proyectos residenciales anunciados en medios inmobiliarios y prensa económica/local.
+
+FUENTES PRIORITARIAS:
+- Brainsre
+- Alimarket Construcción
+- Idealista News
+- El Confidencial Inmobiliario
+- prensa local de ${zonaActual}
+
+INSTRUCCIONES:
+- incluye proyectos anunciados, adquisiciones de suelo, lanzamientos y promociones activas
+- si la noticia nombra promotora, ubicación y proyecto probable, inclúyelo
+- si parece real aunque falten datos, inclúyelo
+
+Responde SOLO con JSON array, sin markdown. Si no hay resultados, responde [].
+
+Cada objeto: ${camposJSON}`
+        });
+      }
+      return batches;
+    }
+
+    function mergeBatchPromos(lista, promo) {
+      const copy = Array.isArray(lista) ? lista.slice() : [];
+      const hit = encontrarPromocionCoincidente(promo, copy);
+      if (hit && hit.match) {
+        copy[hit.idx] = fusionarPromociones(copy[hit.idx], promo);
+      } else {
+        copy.push(promo);
+      }
+      return copy;
+    }
+
     let todasNuevas = [];
-    let idsAcumulados = [...idsConocidos];
+    let huboErrores = false;
 
     for (let i = 0; i < zonasInventario.length; i++) {
       const zonaActual = zonasInventario[i];
       const stepId = `zona_${i}`;
       addStep(stepId, '<div class="spin"></div>', `Buscando en ${zonaActual}... (${i+1}/${zonasInventario.length})`, 'active');
 
-      const promptZona = `Eres un agente de prospección comercial especializado en detectar proyectos residenciales en FASES TEMPRANAS. Trabajas para Kimbo Smart, empresa instaladora de domotica. Hoy es ${hoy}.
-
-ZONA: ${zonaActual}
-${tipoFiltro}
-
-MISION PRINCIPAL: Encontrar TODAS las promociones residenciales posibles. No dejes ninguna relevante fuera. Detecta oportunidades en TODAS las fases y prioriza por score calculado (timing + ticket + probabilidad de cierre).
-
-COBERTURA TOTAL (MUY IMPORTANTE):
-- Busca en TODAS las fuentes sin excepción
-- No limites por tipo de fuente
-- Si dudas, incluye la promoción
-
-FASES DEL PROYECTO y PRIORIDAD:
-1. PRIORIDAD MÁXIMA (fase temprana): suelo adquirido, licencias solicitadas/concedidas, proyectos básicos, arquitectos asignados, noticias de nuevos desarrollos
-2. PRIORIDAD MEDIA: promociones en desarrollo, obra iniciada
-3. PRIORIDAD BAJA: promociones en comercialización o portales (inclúyelas igualmente)
-
-DETECCIÓN DE LUJO (aunque no se indique explícitamente):
-Indicios: ubicación premium, villas/unifamiliares, bajo volumen + alto valor, diseño destacado → marca lujo: sí
-
-CÁLCULO DE score_total:
-- FASE: Licencia concedida/solicitada +40, Proyecto básico +30, Suelo adquirido +25, En construcción +15, En venta +5
-- LUJO: sí +30
-- TAMAÑO: >50 viviendas +25, 20-50 +15, 10-20 +10, <10 +5
-- PROMOTORA activa/recurrente: +15, desconocida: +5
-- CERTEZA FASE: alto +10, medio +5, bajo +0
-
-CLASIFICACIÓN nivel_oportunidad según score_total:
-- score >= 90 → "VERY HOT"
-- score 70-89 → "HOT"
-- score 50-69 → "WARM"
-- score < 50 → "LOW"
-
-URGENCIA (derivada automáticamente):
-- VERY HOT o HOT → urgencia_contacto: "ALTA"
-- WARM → urgencia_contacto: "MEDIA"
-- LOW → urgencia_contacto: "BAJA"
-
-FUENTES POR ORDEN DE PRIORIDAD:
-
-NIVEL 1 - SEÑALES MAS TEMPRANAS (antes del mercado):
-${zonaActual.toLowerCase().includes('marbella') || zonaActual.toLowerCase().includes('estepona') || zonaActual.toLowerCase().includes('mijas') || zonaActual.toLowerCase().includes('costa del sol') || zonaActual.toLowerCase().includes('benahavis') || zonaActual.toLowerCase().includes('manilva') || zonaActual.toLowerCase().includes('fuengirola') || zonaActual.toLowerCase().includes('torremolinos') || zonaActual.toLowerCase().includes('benalmadena') ? `- BOP Malaga (bopmalaga.es) - seccion "urbanismo", "licencias obra mayor", buscar: "${zonaActual}"
-- Ayuntamiento Marbella tablón licencias: marbella.es/urbanismo
-- Ayuntamiento Estepona: estepona.es/urbanismo  
-- Ayuntamiento Mijas: mijas.es/urbanismo
-- Colegio Arquitectos Malaga (coamalaga.es) - estadisticas visados residencial
-- Junta de Andalucia DERA - expedientes urbanisticos
-- Sur.es, Malaga Hoy, La Opinion de Malaga - noticias compra suelo, nuevos proyectos
-- Malagahoy.es seccion inmobiliario` : zonaActual.toLowerCase().includes('madrid') ? `- BOP Madrid (bocm.es) - seccion licencias urbanisticas
-- Ayuntamiento Madrid sede electronica - licencias obra nueva
-- COAM (Colegio Arquitectos Madrid, coam.org) - visados obra nueva
-- Comunidad de Madrid BOCM - anuncios urbanisticos
-- El Mundo Madrid, ABC Madrid - noticias inversiones inmobiliarias
-- Idealista News Madrid - proyectos anunciados` : zonaActual.toLowerCase().includes('sevilla') ? `- BOP Sevilla (bopsevilla.es) - licencias obra mayor
-- Ayuntamiento Sevilla GERENCIA urbanismo: sevilla.org/urbanismo
-- COAAO Sevilla (coaao.es) - visados arquitectos
-- ABC Sevilla, El Correo de Andalucia - noticias sector
-- Diario de Sevilla seccion economia` : zonaActual.toLowerCase().includes('granada') ? `- BOP Granada - licencias urbanisticas
-- Ayuntamiento Granada urbanismo
-- Ideal.es Granada - noticias inmobiliarias` : zonaActual.toLowerCase().includes('malaga') ? `- BOP Malaga (bopmalaga.es) - licencias obra mayor
-- Ayuntamiento Malaga urbanismo (malaga.eu)
-- COAM Malaga (coamalaga.es) - visados
-- Sur.es, Malaga Hoy` : zonaActual.toLowerCase().includes('barcelona') ? `- BOP Barcelona (bopb.cat) - licencias urbanisticas  
-- Ajuntament Barcelona urbanisme
-- COAC (Col.legi Arquitectes Catalunya) - visados
-- La Vanguardia, El Periodico - noticias sector` : zonaActual.toLowerCase().includes('valencia') ? `- BOP Valencia (diariodeatosvalencia.es) - licencias
-- Ayuntamiento Valencia urbanismo
-- Las Provincias, Levante-EMV - noticias sector` : zonaActual.toLowerCase().includes('cadiz') || zonaActual.toLowerCase().includes('jerez') ? `- BOP Cadiz - licencias urbanisticas
-- Ayuntamientos Cadiz y Jerez urbanismo
-- Diario de Cadiz, Europa Sur - noticias sector` : zonaActual.toLowerCase().includes('mallorca') || zonaActual.toLowerCase().includes('ibiza') ? `- BOIB (Boletin Oficial Illes Balears) - licencias
-- Consell de Mallorca / Ibiza urbanismo
-- Diario de Mallorca, Ultima Hora` : `- BOP de la provincia correspondiente a ${zonaActual} - licencias obra mayor
-- Ayuntamiento principal de ${zonaActual} - tablón urbanismo
-- Colegio de Arquitectos de la zona - visados`}
-
-- LinkedIn: buscar directivos con posts sobre "suelo adquirido", "nuevo proyecto", "hemos firmado", "inicio de obras" en ${zonaActual}
-- Twitter/X: hashtags #obranueva + municipio, cuentas de promotoras locales
-- Google: "compra suelo residencial ${zonaActual} 2024 2025 2026"
-- Google: "proyecto residencial ${zonaActual} licencia"
-- Google: "nueva promocion ${zonaActual} promotora"
-
-NIVEL 2 - PORTALES Y WEBS:
-- viviendasnuevas.com - ${zonaActual}
-- idealista.com obra nueva ${zonaActual} - FILTRAR por "en proyecto" y "en construccion"
-- fotocasa.es obra nueva ${zonaActual}
-- lucasfox.com new developments ${zonaActual}
-- aproperties.es obra nueva ${zonaActual}
-
-NIVEL 3 - WEBS DIRECTAS DE PROMOTORAS:
-Busca en secciones "proximas promociones", "en desarrollo", "nuevos proyectos", "pipeline":
-${promotoras_locales}
-
-NIVEL 4 - MEDIOS ESPECIALIZADOS:
-- Brainsre.news - proyectos ${zonaActual}
-- Alimarket Construccion - promotoras activas ${zonaActual}
-- Idealista News - anuncios nuevos proyectos
-- El Confidencial Inmobiliario
-${fuentes_adicionales}
-
-DOMOTICA: Si se menciona domotica, smart home, KNX, Z-Wave, Fibaro, Somfy, Legrand, Jung, Control4, Loxone - registrar en campo marca_domotica.
-
-IDs ya en BD (NO duplicar): ${idsAcumulados.length > 0 ? idsAcumulados.slice(-50).join(', ') : 'ninguno aun'}
-${getCustomSourcesForPrompt('promo')}
-
-IMPORTANTE: Prioriza las señales de fase temprana sobre las ya publicadas en portales. Una promotora que acaba de comprar suelo vale mas que 10 promociones en venta en Idealista.
-
-Responde SOLO con JSON array, sin markdown. Devuelve TODAS las que encuentres. Si no hay ninguna responde [].
-
-Cada objeto: ${camposJSON}`;
-
       try {
-        const rawZona = await callClaude(promptZona, 8000);
-        let parsedZona = parseJSON(rawZona);
+        const batches = getSourceBatches(zonaActual);
+        let encontradasZona = [];
 
-        // Si no hay JSON válido, hacer segunda llamada para formatear
-        if (!Array.isArray(parsedZona) || parsedZona.length === 0) {
-          const promptFmt = `Extrae TODAS las promociones de obra nueva mencionadas en este texto y devuélvelas como JSON array. Sin markdown, sin explicaciones, solo el JSON.
+        for (let bi = 0; bi < batches.length; bi++) {
+          const batch = batches[bi];
+          updateStep(stepId, '<div class="spin"></div>', `${zonaActual} · ${batch.label} (${bi+1}/${batches.length})`, 'active');
 
-TEXTO:
-${rawZona.substring(0, 10000)}
-
-Estructura de cada objeto:
-${camposJSON}
-
-Si no hay promociones, responde: []`;
-          const rawFmt = await callClaude2(promptFmt, 8000);
-          parsedZona = parseJSON(rawFmt);
-        }
-        const encontradas = Array.isArray(parsedZona) ? parsedZona : [];
-
-        // Dedup inteligente entre subzonas: NO descartamos por id_promocion generado por Claude
-        // porque puede colisionar entre ciudades o búsquedas distintas.
-        const nuevasZonaRaw = [];
-        const actualizadasZona = [];
-        encontradas.forEach(function(p) {
-          const coincidencia = encontrarPromocionCoincidente(p, todasNuevas);
-          if (coincidencia.match) {
-            todasNuevas[coincidencia.idx] = fusionarPromociones(todasNuevas[coincidencia.idx], p);
-            actualizadasZona.push(p.nombre_promocion || p.promotora || p.id_promocion || 'promoción');
-          } else {
-            nuevasZonaRaw.push(p);
+          let rawBatch = '';
+          let parsedBatch = null;
+          try {
+            rawBatch = await callClaude(batch.prompt, 7000);
+            parsedBatch = parseJSON(rawBatch);
+            if (!Array.isArray(parsedBatch)) parsedBatch = [];
+            if (!parsedBatch.length && rawBatch) {
+              const promptFmt = `Extrae TODAS las promociones de obra nueva mencionadas en este texto y devuélvelas como JSON array. Sin markdown, sin explicaciones, solo el JSON.\n\nTEXTO:\n${rawBatch.substring(0, 10000)}\n\nEstructura de cada objeto:\n${camposJSON}\n\nSi no hay promociones, responde: []`;
+              const rawFmt = await callClaude2(promptFmt, 7000);
+              parsedBatch = parseJSON(rawFmt);
+              if (!Array.isArray(parsedBatch)) parsedBatch = [];
+            }
+          } catch (batchErr) {
+            console.warn('[Kimbo][batch error]', zonaActual, batch.key, batchErr.message);
+            continue;
           }
-        });
-        const nuevasZona = nuevasZonaRaw;
-        if (actualizadasZona.length > 0) {
-          console.log('[Kimbo] Fusionadas', actualizadasZona.length, 'en zona:', actualizadasZona.slice(0,3).join(', '));
+
+          parsedBatch.forEach(function(p) {
+            encontradasZona = mergeBatchPromos(encontradasZona, p);
+          });
         }
-        idsAcumulados = [...idsAcumulados, ...nuevasZona.map(p => p.id_promocion).filter(Boolean)];
 
-        // Guardar en BD inmediatamente usando dedup inteligente contra BD real
-        if (nuevasZona.length > 0) {
-          const fechaHoy = new Date().toISOString().split('T')[0];
-          const dbActual = await getDB();
-          const nivelToUrgencia = { 'VERY HOT': 'ALTA', 'HOT': 'ALTA', 'WARM': 'MEDIA', 'LOW': 'BAJA' };
+        const dbActual = await getDB();
+        const fechaHoy = new Date().toISOString().split('T')[0];
+        const nivelToUrgencia = { 'VERY HOT': 'ALTA', 'HOT': 'ALTA', 'WARM': 'MEDIA', 'LOW': 'BAJA' };
 
-          const normalizadasZona = nuevasZona.map(p => ({
+        const realesZona = [];
+        const fusionadasConDB = [];
+
+        encontradasZona.forEach(function(p) {
+          const hitNuevas = encontrarPromocionCoincidente(p, todasNuevas);
+          if (hitNuevas && hitNuevas.match) {
+            todasNuevas[hitNuevas.idx] = fusionarPromociones(todasNuevas[hitNuevas.idx], p);
+            return;
+          }
+
+          const hitDB = encontrarPromocionCoincidente(p, dbActual);
+          if (hitDB && hitDB.match) {
+            dbActual[hitDB.idx] = fusionarPromociones(dbActual[hitDB.idx], p);
+            fusionadasConDB.push(p.nombre_promocion || p.promotora || p.id_promocion || 'promo');
+            return;
+          }
+
+          realesZona.push({
             ...p,
             score_total: p.score_total || null,
             nivel_oportunidad: ['VERY HOT','HOT','WARM','LOW'].includes(p.nivel_oportunidad) ? p.nivel_oportunidad : null,
@@ -4186,43 +4214,33 @@ Si no hay promociones, responde: []`;
             es_nueva: true,
             contactos_linkedin: [],
             _contactos_cargando: true
-          }));
-
-          const dbFusionada = [...dbActual];
-          const realesZona = [];
-          const fusionadasConDb = [];
-
-          normalizadasZona.forEach(function(p) {
-            const matchDb = encontrarPromocionCoincidente(p, dbFusionada);
-            if (matchDb.match) {
-              dbFusionada[matchDb.idx] = fusionarPromociones(dbFusionada[matchDb.idx], p);
-              fusionadasConDb.push(p.id_promocion || p.nombre_promocion || p.promotora || 'promoción');
-            } else {
-              realesZona.push(p);
-              dbFusionada.unshift(p);
-            }
           });
+        });
 
-          console.log('[FUSIONADAS_CON_DB]', fusionadasConDb);
-          console.log('[REALES_ZONA]', realesZona.map(p => p.id_promocion || p.nombre_promocion));
-          await saveDB(dbFusionada);
-          todasNuevas = [...todasNuevas, ...realesZona];
+        if (fusionadasConDB.length > 0 || realesZona.length > 0) {
+          await saveDB([...realesZona, ...dbActual]);
           updateBadge();
         }
 
-        updateStep(stepId, '\u2713', `${zonaActual} - ${nuevasZona.length} encontradas`, 'done');
+        if (realesZona.length > 0) {
+          todasNuevas = [...todasNuevas, ...realesZona];
+        }
+
+        console.log('[REALES_ZONA]', zonaActual, realesZona.map(p => p.id_promocion || p.nombre_promocion));
+        console.log('[FUSIONADAS_CON_DB]', zonaActual, fusionadasConDB);
+
+        updateStep(stepId, '\u2713', `${zonaActual} - ${realesZona.length} nuevas / ${fusionadasConDB.length} fusionadas`, 'done');
       } catch(e) {
         updateStep(stepId, '\u26A0', `${zonaActual} - error: ${e.message}`, 'err');
+        huboErrores = true;
       }
 
-      await sleep(1000); // pequeña pausa entre zonas
+      await sleep(900);
     }
 
-    // Mostrar resultados finales
     renderSearchResults(todasNuevas);
 
     if (todasNuevas.length > 0) {
-      // Fase 2: contactos
       addStep('contacts', '<div class="spin"></div>', `Buscando contactos para ${todasNuevas.length} promotoras...`, 'active');
       const contactPromises = todasNuevas.map((promo, idx) => fetchContactos(promo, idx));
       await Promise.allSettled(contactPromises);
@@ -4232,9 +4250,13 @@ Si no hay promociones, responde: []`;
     }
 
     setAgentStatus('done', 'COMPLETADO');
-    await setLastSearch(new Date().toISOString());
-    await saveZonaHistory(zona, 'inventario', todasNuevas.length);
-    showToast(`${todasNuevas.length} nuevas promociones guardadas`);
+    if (huboErrores) {
+      showToast('Búsqueda incompleta: hubo errores y la zona no se ha marcado como completada');
+    } else {
+      await setLastSearch(new Date().toISOString());
+      await saveZonaHistory(zona, 'inventario', todasNuevas.length);
+      showToast(`${todasNuevas.length} nuevas promociones guardadas`);
+    }
     btn.disabled = false;
     return;
   }
