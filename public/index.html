@@ -1423,6 +1423,12 @@ select.form-control optgroup {
             <button id="btn-actualizar-todas" class="btn btn-primary" style="font-size:12px;padding:6px 16px">Actualizar todas</button>
           </div>
           <div id="zona-status-list" style="display:flex;flex-direction:column;gap:6px"></div>
+          <div id="billing-error-warn" style="display:none;background:#fef2f2;border:1px solid #ef4444;border-radius:8px;padding:10px 14px;margin-top:10px;font-size:12px;color:#991b1b">
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:12px">
+              <span>⚠️ Último intento de búsqueda falló por falta de créditos en Anthropic. Las búsquedas están bloqueadas.</span>
+              <button onclick="clearBillingError()" style="background:#ef4444;color:white;border:none;border-radius:6px;padding:4px 12px;font-size:11px;cursor:pointer;font-weight:600;white-space:nowrap;flex-shrink:0">He recargado créditos</button>
+            </div>
+          </div>
         </div>
 
         <!-- RESUMEN SEMANAL -->
@@ -2105,7 +2111,6 @@ select.form-control optgroup {
 <div class="toast" id="toast"></div>
 
 <script>
-
 const DB_KEY = 'kimbo_promociones';
 const ZONA_HISTORY_KEY = 'kimbo_zona_history';
 const SEARCH_LOG_KEY = 'kimbo_search_log';
@@ -2126,8 +2131,8 @@ const PARENT_ZONES = {
   'Sevilla capital': ['Sevilla área metropolitana'],
 };
 
-const DIAS_INVENTARIO = 30;
-const DIAS_ACTUALIZACION = 7;
+const DIAS_INVENTARIO = 0; // Sin bloqueo por días
+const DIAS_ACTUALIZACION = 0; // Sin bloqueo por días
 
 // -- ZONAS ACTIVAS -----------------------------------------
 
@@ -2161,17 +2166,7 @@ function getZonaEstadoPildoras(zona) {
 
 // Check if update is allowed: requires inventario done first
 function checkZonaBlockedUpdate(zona) {
-  const h = getZonaHistory()[zona] || {};
-  if (!h.inventario) {
-    return 'Primero debes hacer el inventario completo de ' + zona;
-  }
-  if (h.diario) {
-    const dias = Math.floor((Date.now() - new Date(h.diario.fecha).getTime()) / 86400000);
-    if (dias < DIAS_ACTUALIZACION) {
-      return 'Actualizacion de ' + zona + ' hecha hace ' + dias + 'd. Disponible en ' + (DIAS_ACTUALIZACION - dias) + ' dias.';
-    }
-  }
-  return null;
+  return null; // Sin bloqueo por días
 }
 
 // Get all zones that have inventario done and are ready for update
@@ -2239,8 +2234,8 @@ function getZonaEstado(zona) {
       return {
         estado: 'inventario-ok', color: 'var(--green)', bg: 'var(--green-dim)',
         label: `\u2713 Inv. ${fechaStr}${via}`,
-        blocked: true,
-        blockedMsg: `Inventario disponible en ${diasRestantes} día${diasRestantes !== 1 ? 's' : ''}`,
+        blocked: false,
+        blockedMsg: null,
         diasActualizacion: dias < DIAS_ACTUALIZACION ? DIAS_ACTUALIZACION - dias : null,
       };
     } else {
@@ -2259,8 +2254,8 @@ function getZonaEstado(zona) {
       return {
         estado: 'actualizacion-ok', color: '#b08000', bg: 'rgba(176,128,0,0.08)',
         label: `\u26A1 Act. ${fechaStr}`,
-        blocked: true,
-        blockedMsg: `Actualización disponible en ${diasRestantes} día${diasRestantes !== 1 ? 's' : ''}`,
+        blocked: false,
+        blockedMsg: null,
       };
     } else {
       return {
@@ -2327,7 +2322,7 @@ async function renderZonaStatus() {
       else if (estado.estado === 'actualizacion-old') actOld++;
       else sinBusqueda++;
 
-      const isBlocked = estado.blocked;
+      const isBlocked = false; // Bloqueo por días eliminado
       const chip = document.createElement('div');
       chip.style.cssText = `display:flex;align-items:center;gap:5px;padding:5px 10px;border-radius:20px;background:${estado.bg};border:1px solid ${estado.color};font-size:11px;cursor:${isBlocked ? 'not-allowed' : 'pointer'};opacity:${isBlocked ? '0.6' : '1'};transition:opacity 0.15s`;
       chip.title = isBlocked ? estado.blockedMsg : `Lanzar búsqueda: ${zona}`;
@@ -2380,6 +2375,10 @@ const CUSTOM_SOURCES_KEY = 'kimbo_custom_sources';
 
 async function addCustomSource(tipo) {
   if (!isAdmin()) { showToast('Esta acción requiere permisos de administrador'); return; }
+  if (await checkBillingErrorGuard()) {
+    showToast('⚠️ Último intento falló por falta de créditos. Recarga y pulsa "He recargado créditos" en Ajustes.');
+    return;
+  }
   const nameEl = document.getElementById('custom-source-' + tipo + '-name');
   const urlEl = document.getElementById('custom-source-' + tipo + '-url');
   const name = nameEl?.value.trim();
@@ -2551,6 +2550,70 @@ async function saveMercadoDB(data) {
 function getZonaHistory() {
   return _cache['zona_history'] || JSON.parse(localStorage.getItem('kimbo_zona_history') || '{}');
 }
+
+// ── MIGRACIÓN ZONA_HISTORY ─────────────────────────────────────
+async function migrateZonaHistoryIfNeeded() {
+  try {
+    const h = await cloudGet('zona_history') || {};
+    let needsMigration = false;
+    const migrated = {};
+    Object.keys(h).forEach(function(zona) {
+      const entry = h[zona];
+      if (entry && (entry.inventario || entry.diario)) {
+        needsMigration = true;
+        const inv = entry.inventario;
+        const dia = entry.diario;
+        if (dia && inv) {
+          const tInv = new Date(inv.fecha || 0).getTime();
+          const tDia = new Date(dia.fecha || 0).getTime();
+          migrated[zona] = tDia > tInv
+            ? { tipo: 'diario', fecha: dia.fecha, encontradas: dia.encontradas || 0 }
+            : { tipo: 'inventario', fecha: inv.fecha, encontradas: inv.encontradas || 0 };
+        } else if (dia) {
+          migrated[zona] = { tipo: 'diario', fecha: dia.fecha, encontradas: dia.encontradas || 0 };
+        } else if (inv) {
+          migrated[zona] = { tipo: 'inventario', fecha: inv.fecha, encontradas: inv.encontradas || 0 };
+        }
+      } else {
+        migrated[zona] = entry;
+      }
+    });
+    if (needsMigration) {
+      console.log('[Kimbo] Migrando zona_history al formato plano...');
+      await cloudSet('zona_history', migrated);
+      delete _cache['zona_history'];
+      console.log('[Kimbo] Migración completada:', Object.keys(migrated).length, 'zonas');
+    }
+  } catch(e) {
+    console.warn('[Kimbo] Error migrando zona_history:', e.message);
+  }
+}
+// ── FIN MIGRACIÓN ──────────────────────────────────────────────
+
+// ── LIMPIEZA ZONAS CON BÚSQUEDA FALLIDA ───────────────────────
+async function cleanInvalidZonaHistory(zonasToRemove) {
+  try {
+    delete _cache['zona_history'];
+    const h = await cloudGet('zona_history') || {};
+    let changed = false;
+    zonasToRemove.forEach(function(zona) {
+      if (h[zona]) {
+        delete h[zona];
+        changed = true;
+        console.log('[Kimbo] Eliminada entrada de zona_history para:', zona);
+      }
+    });
+    if (changed) {
+      await cloudSet('zona_history', h);
+      delete _cache['zona_history'];
+    }
+  } catch(e) {
+    console.warn('[Kimbo] Error limpiando zona_history:', e.message);
+  }
+}
+// ── FIN LIMPIEZA ───────────────────────────────────────────────
+
+
 async function saveZonaHistory(zona, tipo, encontradas) {
   const h = await cloudGet('zona_history') || {};
   const now = new Date().toISOString();
@@ -2768,16 +2831,16 @@ function isAdmin() {
 }
 
 
-function requestSearch() {
+async function requestSearch() {
   if (!isAdmin()) { showToast('Esta acción requiere permisos de administrador'); return; }
+  if (await checkBillingErrorGuard()) {
+    showToast('⚠️ Último intento falló por falta de créditos. Recarga y pulsa "He recargado créditos" en Ajustes.');
+    return;
+  }
   const zonaEl = document.querySelector('#s-zona');
   if (!zonaEl) { showView('buscar'); return; }
   const zona = zonaEl.value;
-  const h = getZonaHistory()[zona] || {};
-  if (h.inventario) {
-    const dias = Math.floor((Date.now() - new Date(h.inventario.fecha).getTime()) / 86400000);
-    if (dias < DIAS_INVENTARIO) { showToast('Inventario de ' + zona + ' hecho hace ' + dias + 'd. Disponible en ' + (DIAS_INVENTARIO - dias) + ' dias.'); return; }
-  }
+  // Bloqueo por días eliminado — siempre se puede buscar
   showView('buscar');
   setMode('inventario');
   runSearch().catch(function(e) { console.error('runSearch error:', e); showToast('Error: ' + e.message); });
@@ -2930,6 +2993,44 @@ function resetTokenStats() {
   renderSettings();
   showToast('Contador reseteado');
 }
+
+
+// ── BILLING ERROR GUARD ────────────────────────────────────────
+async function checkBillingErrorGuard() {
+  if (localStorage.getItem('kimbo_last_billing_error') === '1') return true;
+  try {
+    const err = _cache['last_billing_error'] !== undefined
+      ? _cache['last_billing_error']
+      : await cloudGet('last_billing_error');
+    if (err && err.fecha) {
+      localStorage.setItem('kimbo_last_billing_error', '1');
+      return true;
+    }
+  } catch(_) {}
+  return false;
+}
+
+async function clearBillingError() {
+  localStorage.removeItem('kimbo_last_billing_error');
+  delete _cache['last_billing_error'];
+  try {
+    await fetch('https://kimbo-proxy.vercel.app/api/db?key=last_billing_error', {
+      method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(null)
+    });
+  } catch(_) {}
+  document.querySelectorAll('#billing-error-warn, #billing-settings-warn').forEach(function(el) {
+    el.style.display = 'none';
+  });
+  showToast('✅ Créditos restablecidos. Ya puedes buscar.');
+}
+
+async function showBillingWarningIfNeeded() {
+  const hasErr = await checkBillingErrorGuard();
+  document.querySelectorAll('#billing-error-warn, #billing-settings-warn').forEach(function(el) {
+    if (el) el.style.display = hasErr ? 'block' : 'none';
+  });
+}
+// ── FIN BILLING GUARD ──────────────────────────────────────────
 
 async function callClaude(prompt, maxTokens = 4000) {
   const resp = await fetch('https://kimbo-proxy.vercel.app/api/proxy', {
@@ -4003,139 +4104,8 @@ REDES SOCIALES Y SEÑALES TEMPRANAS:
       'Sevilla capital sur y Bellavista'
     ] : [zona];
 
-    function getSourceBatches(zonaActual) {
-      const batches = [];
-      if (sources.bop || sources.noticias) {
-        batches.push({
-          key: 'tempranas',
-          label: 'licencias + señales tempranas',
-          prompt: `Eres un agente de prospección comercial especializado en detectar proyectos residenciales en FASES TEMPRANAS para Kimbo Smart. Hoy es ${hoy}.
-
-ZONA: ${zonaActual}
-${tipoFiltro}
-
-OBJETIVO: encontrar promociones residenciales NUEVAS o poco visibles en fase temprana. Prioriza suelo adquirido, proyecto básico, licencia solicitada/concedida, anuncio de nuevo desarrollo, alianza con arquitectos, lanzamiento inminente.
-
-FUENTES PRIORITARIAS:
-- boletines oficiales, ayuntamientos, licencias urbanísticas
-- COAM / colegios de arquitectos / visados
-- prensa local y sectorial con noticias de nuevos desarrollos
-- LinkedIn y notas de promotoras anunciando nuevos proyectos
-
-INSTRUCCIONES:
-- incluye promociones aunque falten algunos campos
-- si la fase es dudosa pero el proyecto parece real, inclúyelo
-- no excluyas por no tener precio o número exacto de viviendas
-- si hay varias fuentes sobre la misma promoción, usa la más fiable
-
-IDs ya en BD (solo como referencia, NO uses esto para excluir por tu cuenta): ${idsConocidos.slice(-100).join(', ') || 'ninguno'}
-${getCustomSourcesForPrompt('promo')}
-
-Responde SOLO con JSON array, sin markdown. Si no hay resultados, responde [].
-
-Cada objeto: ${camposJSON}`
-        });
-      }
-      if (sources.idealista) {
-        batches.push({
-          key: 'portales',
-          label: 'portales obra nueva',
-          prompt: `Eres un agente de prospección comercial para Kimbo Smart. Hoy es ${hoy}.
-
-ZONA: ${zonaActual}
-${tipoFiltro}
-
-OBJETIVO: encontrar TODAS las promociones residenciales visibles en portales y agregadores de obra nueva.
-
-FUENTES PRIORITARIAS:
-- Idealista obra nueva
-- Fotocasa obra nueva
-- viviendasnuevas.com
-- Pisos.com obra nueva
-- Habitaclia / Lucas Fox / Aproperties si aplica
-
-INSTRUCCIONES:
-- incluye promociones en proyecto, en construcción y en comercialización
-- no hace falta que sea fase temprana
-- si es una promoción real y activa, inclúyela
-- prioriza cobertura total sobre perfección
-
-Responde SOLO con JSON array, sin markdown. Si no hay resultados, responde [].
-
-Cada objeto: ${camposJSON}`
-        });
-      }
-      if (sources.promotoras) {
-        batches.push({
-          key: 'promotoras',
-          label: 'webs de promotoras',
-          prompt: `Eres un agente de prospección comercial para Kimbo Smart. Hoy es ${hoy}.
-
-ZONA: ${zonaActual}
-${tipoFiltro}
-
-OBJETIVO: rastrear webs oficiales de promotoras para encontrar promociones actuales o próximas.
-
-FUENTES PRIORITARIAS:
-- webs oficiales de promotoras nacionales y locales
-- secciones “próximas promociones”, “en desarrollo”, “obra nueva”, “pipeline”, “residencial”
-
-PROMOTORAS A PRIORIZAR:
-${promotoras_locales}
-
-INSTRUCCIONES:
-- si una promoción aparece en la web oficial, inclúyela aunque no salga en portales
-- si hay poca información, completa solo lo confirmado
-- si la promoción pertenece claramente a ${zonaActual}, inclúyela
-
-Responde SOLO con JSON array, sin markdown. Si no hay resultados, responde [].
-
-Cada objeto: ${camposJSON}`
-        });
-      }
-      if (sources.noticias) {
-        batches.push({
-          key: 'medios',
-          label: 'medios inmobiliarios',
-          prompt: `Eres un agente de prospección comercial para Kimbo Smart. Hoy es ${hoy}.
-
-ZONA: ${zonaActual}
-${tipoFiltro}
-
-OBJETIVO: encontrar promociones y proyectos residenciales anunciados en medios inmobiliarios y prensa económica/local.
-
-FUENTES PRIORITARIAS:
-- Brainsre
-- Alimarket Construcción
-- Idealista News
-- El Confidencial Inmobiliario
-- prensa local de ${zonaActual}
-
-INSTRUCCIONES:
-- incluye proyectos anunciados, adquisiciones de suelo, lanzamientos y promociones activas
-- si la noticia nombra promotora, ubicación y proyecto probable, inclúyelo
-- si parece real aunque falten datos, inclúyelo
-
-Responde SOLO con JSON array, sin markdown. Si no hay resultados, responde [].
-
-Cada objeto: ${camposJSON}`
-        });
-      }
-      return batches;
-    }
-
-    function mergeBatchPromos(lista, promo) {
-      const copy = Array.isArray(lista) ? lista.slice() : [];
-      const hit = encontrarPromocionCoincidente(promo, copy);
-      if (hit && hit.match) {
-        copy[hit.idx] = fusionarPromociones(copy[hit.idx], promo);
-      } else {
-        copy.push(promo);
-      }
-      return copy;
-    }
-
     let todasNuevas = [];
+    let idsAcumulados = [...idsConocidos];
     let huboErrores = false;
 
     for (let i = 0; i < zonasInventario.length; i++) {
@@ -4143,104 +4113,208 @@ Cada objeto: ${camposJSON}`
       const stepId = `zona_${i}`;
       addStep(stepId, '<div class="spin"></div>', `Buscando en ${zonaActual}... (${i+1}/${zonasInventario.length})`, 'active');
 
-      try {
-        const batches = getSourceBatches(zonaActual);
-        let encontradasZona = [];
+      
+      const blockFocus = [
+        {
+          id: 'tempranas',
+          label: 'señales tempranas',
+          extra: `PRIORIDAD ABSOLUTA EN ESTE BLOQUE:
+- suelo adquirido
+- licencias solicitadas o concedidas
+- proyecto básico o visado
+- inicio de obra
+- noticias de nuevo desarrollo
+EXCLUYE resultados genéricos si no aportan señal temprana.`
+        },
+        {
+          id: 'portales',
+          label: 'portales',
+          extra: `PRIORIDAD ABSOLUTA EN ESTE BLOQUE:
+- promociones activas en portales de obra nueva
+- viviendasnuevas.com
+- idealista obra nueva
+- fotocasa obra nueva
+- pisos.com obra nueva
+- otros agregadores de obra nueva
+Si dudas, incluye la promoción aunque esté en comercialización.`
+        },
+        {
+          id: 'promotoras',
+          label: 'promotoras',
+          extra: `PRIORIDAD ABSOLUTA EN ESTE BLOQUE:
+- webs oficiales de promotoras
+- secciones de "próximas promociones", "en comercialización", "en desarrollo", "pipeline"
+- promotoras nacionales y locales activas en la zona
+Incluye promociones con información parcial si son reales.`
+        },
+        {
+          id: 'noticias',
+          label: 'medios y prensa',
+          extra: `PRIORIDAD ABSOLUTA EN ESTE BLOQUE:
+- prensa local
+- medios inmobiliarios
+- artículos sobre nuevos residenciales, compras de suelo, licencias, inicios de obra
+Incluye promociones nombradas aunque falten algunos campos.`
+        }
+      ];
 
-        for (let bi = 0; bi < batches.length; bi++) {
-          const batch = batches[bi];
-          updateStep(stepId, '<div class="spin"></div>', `${zonaActual} · ${batch.label} (${bi+1}/${batches.length})`, 'active');
+      async function fetchPromosInventarioBloque(zonaBusqueda, bloque) {
+        const promptBloque = `Eres un agente de prospección comercial especializado en detectar proyectos residenciales en FASES TEMPRANAS. Trabajas para Kimbo Smart, empresa instaladora de domotica. Hoy es ${hoy}.
 
-          let rawBatch = '';
-          let parsedBatch = null;
-          try {
-            rawBatch = await callClaude(batch.prompt, 7000);
-            parsedBatch = parseJSON(rawBatch);
-            if (!Array.isArray(parsedBatch)) parsedBatch = [];
-            if (!parsedBatch.length && rawBatch) {
-              const promptFmt = `Extrae TODAS las promociones de obra nueva mencionadas en este texto y devuélvelas como JSON array. Sin markdown, sin explicaciones, solo el JSON.\n\nTEXTO:\n${rawBatch.substring(0, 10000)}\n\nEstructura de cada objeto:\n${camposJSON}\n\nSi no hay promociones, responde: []`;
-              const rawFmt = await callClaude2(promptFmt, 7000);
-              parsedBatch = parseJSON(rawFmt);
-              if (!Array.isArray(parsedBatch)) parsedBatch = [];
-            }
-          } catch (batchErr) {
-            console.warn('[Kimbo][batch error]', zonaActual, batch.key, batchErr.message);
-            continue;
-          }
+ZONA: ${zonaBusqueda}
+BLOQUE DE BUSQUEDA: ${bloque.label}
+${tipoFiltro}
 
-          parsedBatch.forEach(function(p) {
-            encontradasZona = mergeBatchPromos(encontradasZona, p);
-          });
+OBJETIVO:
+Encontrar TODAS las promociones residenciales posibles dentro de ${zonaBusqueda} para este bloque de búsqueda.
+No inventes promociones. Si hay dudas razonables pero la promoción parece real, inclúyela igualmente.
+
+${bloque.extra}
+
+REGLAS GENERALES:
+- Responde SOLO con JSON array
+- Sin markdown
+- Sin comentarios
+- Si no encuentras ninguna, responde []
+- Devuelve promociones nuevas, en construcción o en comercialización si son reales
+- Prioriza nombres oficiales, promotora, municipio, viviendas, fase y fuente
+- Si una promoción aparece con nombre comercial distinto pero claramente es la misma, usa el nombre más oficial
+
+COBERTURA Y FUENTES:
+${promotoras_locales}
+
+${fuentes_adicionales}
+
+Pistas útiles de búsqueda para ${zonaBusqueda}:
+- "obra nueva ${zonaBusqueda}"
+- "promoción viviendas ${zonaBusqueda}"
+- "residencial ${zonaBusqueda}"
+- "nuevo proyecto inmobiliario ${zonaBusqueda}"
+- "promotora ${zonaBusqueda}"
+- "licencia obra nueva ${zonaBusqueda}"
+- "suelo residencial ${zonaBusqueda}"
+
+IDs ya en BD (informativo, no descartes solo por parecido): ${idsAcumulados.length > 0 ? idsAcumulados.slice(-80).join(', ') : 'ninguno aun'}
+${getCustomSourcesForPrompt('promo')}
+
+Estructura de cada objeto:
+${camposJSON}`;
+
+        let raw = await callClaude(promptBloque, 7000);
+        let parsed = parseJSON(raw);
+
+        if (!Array.isArray(parsed) || parsed.length === 0) {
+          const promptFmt = `Extrae TODAS las promociones de obra nueva mencionadas en este texto y devuélvelas como JSON array. Sin markdown, sin explicaciones, solo el JSON.
+
+TEXTO:
+${raw.substring(0, 12000)}
+
+Estructura de cada objeto:
+${camposJSON}
+
+Si no hay promociones, responde: []`;
+          const rawFmt = await callClaude2(promptFmt, 7000);
+          parsed = parseJSON(rawFmt);
         }
 
-        const dbActual = await getDB();
-        const fechaHoy = new Date().toISOString().split('T')[0];
-        const nivelToUrgencia = { 'VERY HOT': 'ALTA', 'HOT': 'ALTA', 'WARM': 'MEDIA', 'LOW': 'BAJA' };
+        return Array.isArray(parsed) ? parsed : [];
+      }
 
-        const realesZona = [];
-        const fusionadasConDB = [];
+      try {
+        const stepBlockId = `zona_${i}_bloques`;
+        addStep(stepBlockId, '<div class="spin"></div>', `Ampliando cobertura en ${zonaActual} con múltiples bloques...`, 'active');
 
-        encontradasZona.forEach(function(p) {
-          const hitNuevas = encontrarPromocionCoincidente(p, todasNuevas);
-          if (hitNuevas && hitNuevas.match) {
-            todasNuevas[hitNuevas.idx] = fusionarPromociones(todasNuevas[hitNuevas.idx], p);
-            return;
-          }
+        const seenInZone = [];
 
-          const hitDB = encontrarPromocionCoincidente(p, dbActual);
-          if (hitDB && hitDB.match) {
-            dbActual[hitDB.idx] = fusionarPromociones(dbActual[hitDB.idx], p);
-            fusionadasConDB.push(p.nombre_promocion || p.promotora || p.id_promocion || 'promo');
-            return;
-          }
+        for (let b = 0; b < blockFocus.length; b++) {
+          const bloque = blockFocus[b];
+          const resultadosBloque = await fetchPromosInventarioBloque(zonaActual, bloque);
+          console.log(`[BLOQUE ${bloque.id}]`, zonaActual, resultadosBloque.map(p => p.id_promocion || p.nombre_promocion || p.promotora));
 
-          realesZona.push({
-            ...p,
-            score_total: p.score_total || null,
-            nivel_oportunidad: ['VERY HOT','HOT','WARM','LOW'].includes(p.nivel_oportunidad) ? p.nivel_oportunidad : null,
-            nivel_certeza_fase: ['alto','medio','bajo'].includes(p.nivel_certeza_fase) ? p.nivel_certeza_fase : null,
-            indicios_clave: p.indicios_clave || null,
-            lujo: p.lujo === 'sí' ? 'sí' : (p.lujo === 'no' ? 'no' : null),
-            urgencia_contacto: p.urgencia_contacto || nivelToUrgencia[p.nivel_oportunidad] || 'MEDIA',
-            accion_recomendada: calcularAccion({ ...p, estado_comercial: 'Pendiente' })?.accion || null,
-            fecha_ultimo_movimiento: fechaHoy + 'T00:00:00.000Z',
-            tipo_ultimo_movimiento: 'deteccion',
-            sin_contacto: true,
-            sin_decisor: false,
-            pendiente_validacion: (p.nivel_certeza_fase === 'bajo' || p.nivel_certeza_fase === 'medio') && (p.nivel_oportunidad === 'VERY HOT' || p.nivel_oportunidad === 'HOT'),
-            fecha_deteccion: fechaHoy,
-            estado_comercial: 'Pendiente',
-            comercial_asignado: '',
-            es_nueva: true,
-            contactos_linkedin: [],
-            _contactos_cargando: true
+          resultadosBloque.forEach(function(p) {
+            const dupLocal = encontrarPromocionCoincidente(p, seenInZone);
+            if (dupLocal && dupLocal.match) {
+              seenInZone[dupLocal.idx] = fusionarPromociones(seenInZone[dupLocal.idx], p);
+            } else {
+              seenInZone.push(p);
+            }
           });
+
+          await sleep(400);
+        }
+
+        const encontradasTotales = seenInZone;
+        console.log('[DEBUG1] encontradas ids:', encontradasTotales.map(p => p.id_promocion));
+
+        const nuevasZonaRaw = [];
+        const fusionadasEnDB = [];
+        const dbActual = await getDB();
+
+        encontradasTotales.forEach(function(p) {
+          const coincidenciaDB = encontrarPromocionCoincidente(p, dbActual);
+          if (coincidenciaDB && coincidenciaDB.match) {
+            fusionadasEnDB.push(p.nombre_promocion || p.promotora || p.id_promocion);
+          } else {
+            const coincidenciaNuevas = encontrarPromocionCoincidente(p, nuevasZonaRaw);
+            if (coincidenciaNuevas && coincidenciaNuevas.match) {
+              nuevasZonaRaw[coincidenciaNuevas.idx] = fusionarPromociones(nuevasZonaRaw[coincidenciaNuevas.idx], p);
+            } else {
+              nuevasZonaRaw.push(p);
+            }
+          }
         });
 
-        if (fusionadasConDB.length > 0 || realesZona.length > 0) {
-          await saveDB([...realesZona, ...dbActual]);
+        const nuevasZona = nuevasZonaRaw;
+        console.log('[DEBUG3] nuevasZona ids:', nuevasZona.map(p => p.id_promocion));
+        console.log('[FUSIONADAS_CON_DB]', zonaActual, fusionadasEnDB);
+
+        idsAcumulados = [...idsAcumulados, ...nuevasZona.map(p => p.id_promocion).filter(Boolean)];
+
+        if (nuevasZona.length > 0) {
+          const fechaHoy = new Date().toISOString().split('T')[0];
+          const dbActual2 = await getDB();
+          const nivelToUrgencia = { 'VERY HOT': 'ALTA', 'HOT': 'ALTA', 'WARM': 'MEDIA', 'LOW': 'BAJA' };
+
+          const realesZona = nuevasZona.map(p => ({
+              ...p,
+              score_total: p.score_total || null,
+              nivel_oportunidad: ['VERY HOT','HOT','WARM','LOW'].includes(p.nivel_oportunidad) ? p.nivel_oportunidad : null,
+              nivel_certeza_fase: ['alto','medio','bajo'].includes(p.nivel_certeza_fase) ? p.nivel_certeza_fase : null,
+              indicios_clave: p.indicios_clave || null,
+              lujo: p.lujo === 'sí' ? 'sí' : (p.lujo === 'no' ? 'no' : null),
+              urgencia_contacto: p.urgencia_contacto || nivelToUrgencia[p.nivel_oportunidad] || 'MEDIA',
+              accion_recomendada: calcularAccion({ ...p, estado_comercial: 'Pendiente' })?.accion || null,
+              fecha_ultimo_movimiento: fechaHoy + 'T00:00:00.000Z',
+              tipo_ultimo_movimiento: 'deteccion',
+              sin_contacto: true,
+              sin_decisor: false,
+              pendiente_validacion: (p.nivel_certeza_fase === 'bajo' || p.nivel_certeza_fase === 'medio') && (p.nivel_oportunidad === 'VERY HOT' || p.nivel_oportunidad === 'HOT'),
+              fecha_deteccion: fechaHoy, estado_comercial: 'Pendiente',
+              comercial_asignado: '', es_nueva: true, contactos_linkedin: [], _contactos_cargando: true
+          }));
+
+          console.log('[REALES_ZONA]', zonaActual, realesZona.map(p => p.id_promocion));
+          await saveDB([...realesZona, ...dbActual2]);
+          todasNuevas = [...todasNuevas, ...realesZona];
           updateBadge();
         }
 
-        if (realesZona.length > 0) {
-          todasNuevas = [...todasNuevas, ...realesZona];
-        }
+        updateStep(stepBlockId, '\u2713', `Cobertura ampliada en ${zonaActual}: ${encontradasTotales.length} detectadas / ${nuevasZona.length} nuevas`, 'done');
+        updateStep(stepId, '\u2713', `${zonaActual} - ${nuevasZona.length} encontradas`, 'done');
 
-        console.log('[REALES_ZONA]', zonaActual, realesZona.map(p => p.id_promocion || p.nombre_promocion));
-        console.log('[FUSIONADAS_CON_DB]', zonaActual, fusionadasConDB);
-
-        updateStep(stepId, '\u2713', `${zonaActual} - ${realesZona.length} nuevas / ${fusionadasConDB.length} fusionadas`, 'done');
       } catch(e) {
         updateStep(stepId, '\u26A0', `${zonaActual} - error: ${e.message}`, 'err');
         huboErrores = true;
       }
 
-      await sleep(900);
+      await sleep(1000); // pequeña pausa entre zonas
     }
 
+    // Mostrar resultados finales
     renderSearchResults(todasNuevas);
 
     if (todasNuevas.length > 0) {
+      // Fase 2: contactos
       addStep('contacts', '<div class="spin"></div>', `Buscando contactos para ${todasNuevas.length} promotoras...`, 'active');
       const contactPromises = todasNuevas.map((promo, idx) => fetchContactos(promo, idx));
       await Promise.allSettled(contactPromises);
@@ -5657,6 +5731,10 @@ function kimboInit() {
   (async function() {
     try {
       await preloadCloudData();
+    await migrateZonaHistoryIfNeeded();
+    // Clean Madrid zones that were incorrectly marked from a failed search
+    await cleanInvalidZonaHistory(['Madrid capital','Madrid norte','Madrid oeste (Pozuelo, Las Rozas, Majadahonda)','Madrid sur','Madrid este']);
+    await showBillingWarningIfNeeded();
       await loadTokenStats();
       await renderDashboard();
       await updateBadge();
@@ -6620,7 +6698,30 @@ async function migrarScoringExistentes() {
   showToast(sinScoring.length + ' promociones clasificadas con scoring local');
   return sinScoring.length;
 }
-// ── FIN MIGRACIÓN ─────────────────────────────────────────────────
+// ── FIN MIGRACIÓN ──────────────────────────────────────────────
+
+// ── LIMPIEZA ZONAS CON BÚSQUEDA FALLIDA ───────────────────────
+async function cleanInvalidZonaHistory(zonasToRemove) {
+  try {
+    delete _cache['zona_history'];
+    const h = await cloudGet('zona_history') || {};
+    let changed = false;
+    zonasToRemove.forEach(function(zona) {
+      if (h[zona]) {
+        delete h[zona];
+        changed = true;
+        console.log('[Kimbo] Eliminada entrada de zona_history para:', zona);
+      }
+    });
+    if (changed) {
+      await cloudSet('zona_history', h);
+      delete _cache['zona_history'];
+    }
+  } catch(e) {
+    console.warn('[Kimbo] Error limpiando zona_history:', e.message);
+  }
+}
+// ── FIN LIMPIEZA ───────────────────────────────────────────────
 
 // ── SCORING LOCAL (para promociones sin datos de Claude) ──────────
 function calcularScoreLocal(p) {
@@ -7141,6 +7242,12 @@ function renderPanelGenerico(el, data, tipo) {
   window.fusionarPromociones = fusionarPromociones;
   window.aplicarAutomatizaciones = aplicarAutomatizaciones;
   window.setDashQuickFilter = setDashQuickFilter;
+  window.checkBillingErrorGuard = checkBillingErrorGuard;
+  window.clearBillingError = clearBillingError;
+  window.showBillingWarningIfNeeded = showBillingWarningIfNeeded;
+  window.migrateZonaHistoryIfNeeded = migrateZonaHistoryIfNeeded;
+  window.clearBillingError = clearBillingError;
+  window.showBillingWarningIfNeeded = showBillingWarningIfNeeded;
   window.getPerfilesPrioritarios = getPerfilesPrioritarios;
   window.renderActivityLog = renderActivityLog;
   window.runPartners = runPartners;
@@ -7165,7 +7272,6 @@ if (document.readyState === 'loading') {
 } else {
   kimboInit();
 }
-
 </script>
 </body>
 </html>
