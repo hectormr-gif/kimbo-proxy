@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover">
 <title>Kimbo Prospector</title>
+<link rel="icon" href="data:,">
 <style>
 /* Ocultar header, nav y footer de WordPress */
 .site-header, header.site-header, #masthead,
@@ -2143,57 +2144,36 @@ const DIAS_ACTUALIZACION = 7;
 // -- CICLO SEMANAL -----------------------------------------
 // -- ZONA STATE --------------------------------------------
 function getZonaEstadoPildoras(zona) {
-  const h = getZonaHistory()[zona] || {};
+  const entry = getZonaHistory()[zona] || null;
   const now = Date.now();
 
-  const calcPildora = (entry, tipo, limDias) => {
-    if (!entry) return { color: 'var(--red)', bg: 'var(--red-dim)', label: tipo === 'inventario' ? 'Sin inventario' : 'Sin actualizacion', blocked: false };
-    const dias = Math.floor((now - new Date(entry.fecha).getTime()) / 86400000);
-    const fechaStr = new Date(entry.fecha).toLocaleDateString('es-ES', { day: 'numeric', month: 'short' });
-    const via = entry.via ? ' (via ' + entry.via + ')' : '';
-    const encontradas = entry.encontradas !== undefined ? ' . ' + entry.encontradas + ' encontradas' : '';
-    if (dias < limDias) {
-      return { color: 'var(--green)', bg: 'var(--green-dim)', label: fechaStr + via + encontradas, blocked: true, diasRestantes: limDias - dias };
-    } else {
-      return { color: 'var(--orange)', bg: 'var(--orange-dim)', label: fechaStr + ' (hace ' + dias + 'd)' + via + encontradas, blocked: false };
+  const calcPildora = (e, tipo) => {
+    if (!e) return { color: 'var(--red)', bg: 'var(--red-dim)', label: tipo === 'inventario' ? 'Sin inventario' : 'Sin actualizacion', blocked: false };
+    const dias = Math.floor((now - new Date(e.fecha).getTime()) / 86400000);
+    const fechaStr = new Date(e.fecha).toLocaleDateString('es-ES', { day: 'numeric', month: 'short' });
+    const via = e.via ? ' (via ' + e.via + ')' : '';
+    const encontradas = e.encontradas !== undefined ? ' . ' + e.encontradas + ' encontradas' : '';
+    const ok = (e.encontradas || 0) > 0 || !!e.via;
+    if (ok) {
+      return { color: 'var(--green)', bg: 'var(--green-dim)', label: fechaStr + via + encontradas, blocked: false };
     }
+    return { color: 'var(--orange)', bg: 'var(--orange-dim)', label: fechaStr + ' (hace ' + dias + 'd)' + via + encontradas, blocked: false };
   };
 
   return {
-    inventario: calcPildora(h.inventario, 'inventario', DIAS_INVENTARIO),
-    actualizacion: calcPildora(h.diario, 'diario', DIAS_ACTUALIZACION),
+    inventario: calcPildora(entry && entry.tipo === 'inventario' ? entry : null, 'inventario'),
+    actualizacion: calcPildora(entry && entry.tipo === 'diario' ? entry : null, 'diario'),
   };
 }
 
 // Check if update is allowed: requires inventario done first
 function checkZonaBlockedUpdate(zona) {
-  const h = getZonaHistory()[zona] || {};
-  if (!h.inventario) {
-    return 'Primero debes hacer el inventario completo de ' + zona;
-  }
-  if (h.diario) {
-    const dias = Math.floor((Date.now() - new Date(h.diario.fecha).getTime()) / 86400000);
-    if (dias < DIAS_ACTUALIZACION) {
-      return 'Actualizacion de ' + zona + ' hecha hace ' + dias + 'd. Disponible en ' + (DIAS_ACTUALIZACION - dias) + ' dias.';
-    }
-  }
   return null;
 }
 
 // Get all zones that have inventario done and are ready for update
 function getZonasListasParaActualizar() {
-  const h = getZonaHistory();
-  const listas = [];
-  ALL_ZONES_FLAT.forEach(zona => {
-    const zh = h[zona];
-    if (!zh || !zh.inventario) return; // no inventario = skip
-    if (zh.diario) {
-      const dias = Math.floor((Date.now() - new Date(zh.diario.fecha).getTime()) / 86400000);
-      if (dias < DIAS_ACTUALIZACION) return; // too recent
-    }
-    listas.push(zona);
-  });
-  return listas;
+  return ALL_ZONES_FLAT.slice();
 }
 
 async function renderResumenSemanal() {
@@ -2237,67 +2217,31 @@ function getZonaEstado(zona) {
   const dias = Math.floor((now - new Date(entry.fecha).getTime()) / 86400000);
   const via = entry.via ? ` (vía ${entry.via})` : '';
   const fechaStr = new Date(entry.fecha).toLocaleDateString('es-ES', {day:'numeric', month:'short'});
+  const conResultados = (entry.encontradas || 0) > 0 || !!entry.via;
 
-  if (entry.tipo === 'inventario') {
-    if (dias < DIAS_INVENTARIO) {
-      // Inventario reciente - verde
-      const diasRestantes = DIAS_INVENTARIO - dias;
-      return {
-        estado: 'inventario-ok', color: 'var(--green)', bg: 'var(--green-dim)',
-        label: `\u2713 Inv. ${fechaStr}${via}`,
-        blocked: true,
-        blockedMsg: `Inventario disponible en ${diasRestantes} día${diasRestantes !== 1 ? 's' : ''}`,
-        diasActualizacion: dias < DIAS_ACTUALIZACION ? DIAS_ACTUALIZACION - dias : null,
-      };
-    } else {
-      // Inventario antiguo - amarillo
-      return {
-        estado: 'inventario-old', color: 'var(--orange)', bg: 'rgba(245,177,0,0.1)',
-        label: `\u26A0 Inv. ${fechaStr} (hace ${dias}d)${via}`,
-        blocked: false, blockedMsg: null,
-      };
-    }
+  if (conResultados) {
+    return {
+      estado: entry.tipo === 'diario' ? 'actualizacion-ok' : 'inventario-ok',
+      color: 'var(--green)',
+      bg: 'var(--green-dim)',
+      label: `${entry.tipo === 'diario' ? '✓ Act.' : '✓ Inv.'} ${fechaStr}${via}${entry.encontradas !== undefined ? ` · ${entry.encontradas}` : ''}`,
+      blocked: false,
+      blockedMsg: null,
+    };
   }
 
-  if (entry.tipo === 'diario') {
-    if (dias < DIAS_ACTUALIZACION) {
-      const diasRestantes = DIAS_ACTUALIZACION - dias;
-      return {
-        estado: 'actualizacion-ok', color: '#b08000', bg: 'rgba(176,128,0,0.08)',
-        label: `\u26A1 Act. ${fechaStr}`,
-        blocked: true,
-        blockedMsg: `Actualización disponible en ${diasRestantes} día${diasRestantes !== 1 ? 's' : ''}`,
-      };
-    } else {
-      return {
-        estado: 'actualizacion-old', color: 'var(--orange)', bg: 'var(--orange-dim)',
-        label: `\u26A1 Act. ${fechaStr} (hace ${dias}d)`,
-        blocked: false, blockedMsg: null,
-      };
-    }
-  }
-
-  return { estado: 'sin-busqueda', color: 'var(--red)', bg: 'var(--red-dim)', label: 'Sin búsqueda', blocked: false };
+  return {
+    estado: entry.tipo === 'diario' ? 'actualizacion-old' : 'inventario-old',
+    color: 'var(--orange)',
+    bg: 'var(--orange-dim)',
+    label: `${entry.tipo === 'diario' ? '⚠ Act.' : '⚠ Inv.'} ${fechaStr} (hace ${dias}d)${via}`,
+    blocked: false,
+    blockedMsg: null,
+  };
 }
 
 // Check if a search is blocked for current zone+mode
 function checkZonaBlocked(zona, modo) {
-  const h = getZonaHistory();
-  const entry = h[zona];
-  if (!entry) return null; // never searched, always allowed
-
-  const dias = Math.floor((Date.now() - new Date(entry.fecha).getTime()) / 86400000);
-
-  if (modo === 'inventario') {
-    if (entry.tipo === 'inventario' && dias < DIAS_INVENTARIO) {
-      return `Ya se hizo el inventario de ${zona} hace ${dias} días. Disponible en ${DIAS_INVENTARIO - dias} días.`;
-    }
-  }
-  if (modo === 'diario') {
-    if (dias < DIAS_ACTUALIZACION) {
-      return `Ya se hizo una búsqueda de ${zona} hace ${dias} días. Actualización disponible en ${DIAS_ACTUALIZACION - dias} días.`;
-    }
-  }
   return null;
 }
 
@@ -2604,16 +2548,15 @@ async function migrateZonaHistoryIfNeeded() {
 async function saveZonaHistory(zona, tipo, encontradas) {
   const h = await cloudGet('zona_history') || {};
   const now = new Date().toISOString();
-  // Flat structure: h[zona] = { tipo, fecha, encontradas, via? }
   h[zona] = { tipo, fecha: now, encontradas: encontradas || 0 };
   if (tipo === 'inventario' && PARENT_ZONES[zona]) {
+    const subCount = encontradas > 0 ? 1 : 0;
     PARENT_ZONES[zona].forEach(sub => {
-      if (!h[sub] || h[sub].tipo !== 'inventario') {
-        h[sub] = { tipo: 'inventario', fecha: now, encontradas: 0, via: zona };
-      }
+      h[sub] = { tipo: 'inventario', fecha: now, encontradas: subCount, via: zona };
     });
   }
   await cloudSet('zona_history', h);
+  delete _cache['zona_history'];
   if (typeof renderZonaStatus === 'function') renderZonaStatus();
   if (typeof renderResumenSemanal === 'function') renderResumenSemanal();
 }
@@ -2826,13 +2769,6 @@ async function requestSearch() {
   }
   const zonaEl = document.querySelector('#s-zona');
   if (!zonaEl) { showView('buscar'); return; }
-  const zona = zonaEl.value;
-  const h = getZonaHistory()[zona] || {};
-  const hEntry = h.inventario ? h.inventario : (h.tipo === 'inventario' ? h : null);
-  if (hEntry && hEntry.fecha) {
-    const dias = Math.floor((Date.now() - new Date(hEntry.fecha).getTime()) / 86400000);
-    if (dias < DIAS_INVENTARIO) { showToast('Inventario de ' + zona + ' hecho hace ' + dias + 'd. Disponible en ' + (DIAS_INVENTARIO - dias) + ' dias.'); return; }
-  }
   showView('buscar');
   setMode('inventario');
   runSearch().catch(function(e) { console.error('runSearch error:', e); showToast('Error: ' + e.message); });
@@ -2853,13 +2789,6 @@ function requestActualizacionMercado() {
 function requestMercadoSearch() {
   if (!isAdmin()) { showToast('Esta acción requiere permisos de administrador'); return; }
   showView('buscar-mercado');
-  const zonaEl = document.querySelector('#m-zona');
-  const zona = zonaEl ? zonaEl.value : '';
-  const h = getZonaHistoryMercado()[zona] || {};
-  if (h.inventario) {
-    const dias = Math.floor((Date.now() - new Date(h.inventario.fecha).getTime()) / 86400000);
-    if (dias < DIAS_INVENTARIO) { showToast('Inventario de ' + zona + ' hecho hace ' + dias + 'd. Disponible en ' + (DIAS_INVENTARIO - dias) + ' dias.'); return; }
-  }
   runMercado().catch(function(e) { console.error('runMercado error:', e); showToast('Error: ' + e.message); });
 }
 
@@ -4134,18 +4063,32 @@ REDES SOCIALES Y SEÑALES TEMPRANAS:
 
     const filterSearchResults = (results, zonaActual) => {
       const seen = new Set();
+      const excludedDomains = ['wikipedia.org','idealista.com/news','elmundo.es','elpais.com','expansion.com','eleconomista.es','x.com','twitter.com','facebook.com','instagram.com','youtube.com'];
+      const excludedTerms = ['precio de la vivienda','hipoteca','mercado inmobiliario','análisis','analisis','tendencias','opinión','opinion','inversión','inversion'];
+      const requiredTerms = ['obra nueva','promoción','promocion','residencial','viviendas','vivienda','chalets','pisos','apartamentos','adosados','bajos'];
+      const promoTerms = ['desde','entrega','dormitorios','unidades','villas','ático','atico','pisos en venta','obra nueva en'];
+      const zoneParts = zonaActual.toLowerCase().split(/[(),\/\-]/).map(s => s.trim()).filter(s => s && s.length > 3);
+
       return (results || []).filter(r => {
-        if (!r || !r.link || seen.has(r.link)) return false;
-        seen.add(r.link);
+        if (!r || !r.link) return false;
+        let normalizedLink = r.link.replace(/#.*$/, '').replace(/[?&](utm_[^=&]+|gad_source|gclid|gbraid|wbraid)=[^&]*/g, '');
+        if (seen.has(normalizedLink)) return false;
+        seen.add(normalizedLink);
+
         const txt = `${r.title || ''} ${r.snippet || ''}`.toLowerCase();
-        const ztxt = zonaActual.toLowerCase();
-        const hasHousing = txt.includes('obra nueva') || txt.includes('promoción') || txt.includes('residencial') || txt.includes('viviendas') || txt.includes('chalets') || txt.includes('pisos');
-        const hasZone = ztxt.split(/[(),]/).some(part => {
-          const p = part.trim().toLowerCase();
-          return p && p.length > 3 && txt.includes(p);
-        });
-        return hasHousing && (hasZone || txt.includes('madrid'));
-      }).slice(0, 25);
+        let hostname = '';
+        try { hostname = new URL(r.link).hostname.replace(/^www\./, ''); } catch(_) {}
+
+        if (excludedDomains.some(d => hostname.endsWith(d))) return false;
+        if (excludedTerms.some(t => txt.includes(t))) return false;
+
+        const hasHousing = requiredTerms.some(t => txt.includes(t));
+        const hasPromoSignal = promoTerms.some(t => txt.includes(t));
+        const hasZone = zoneParts.some(p => txt.includes(p)) || txt.includes('madrid');
+        const hasDomainIntent = /(idealista|fotocasa|pisos\.com|habitaclia|obra-nueva|aedas|culmia|metrovacesa|neinor|gestilar|realia|lifestyle|residencial)/.test(hostname + ' ' + txt);
+
+        return hasZone && ((hasHousing && hasPromoSignal) || (hasHousing && hasDomainIntent));
+      }).slice(0, 12);
     };
 
     const parsePromotionsFromSearch = async (zonaActual, blockName, results) => {
@@ -4314,10 +4257,12 @@ ${compact}`;
     setAgentStatus('done', 'COMPLETADO');
     if (huboErrores) {
       showToast('Búsqueda incompleta: hubo errores y la zona no se ha marcado como completada');
-    } else {
+    } else if (todasNuevas.length > 0) {
       await setLastSearch(new Date().toISOString());
       await saveZonaHistory(zona, 'inventario', todasNuevas.length);
       showToast(`${todasNuevas.length} nuevas promociones guardadas`);
+    } else {
+      showToast('Búsqueda finalizada sin resultados nuevos');
     }
     btn.disabled = false;
     return;
