@@ -4236,6 +4236,15 @@ ${compact}`;
         }
 
         updateStep(stepId, '\u2713', `${zonaActual} - ${realesZona.length} nuevas`, 'done');
+        if (todasNuevas.length > 0) {
+        await saveZonaHistory(zonaActual, 'inventario', todasNuevas.length);
+        await addSearchLog(zonaActual, 'inventario', todasNuevas.length);
+        delete _cache['zona_history'];
+
+        if (typeof renderZonaStatus === 'function') await renderZonaStatus();
+        if (typeof renderResumenSemanal === 'function') await renderResumenSemanal();
+      }
+        
       } catch(e) {
         console.error('[ERROR ZONA]', zonaActual, e);
         updateStep(stepId, '\u26A0', `${zonaActual} - error: ${e.message}`, 'err');
