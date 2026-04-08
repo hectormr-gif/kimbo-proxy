@@ -2131,8 +2131,8 @@ const PARENT_ZONES = {
   'Sevilla capital': ['Sevilla área metropolitana'],
 };
 
-const DIAS_INVENTARIO = 30;
-const DIAS_ACTUALIZACION = 7;
+const DIAS_INVENTARIO = 0; // Sin bloqueo por días
+const DIAS_ACTUALIZACION = 0; // Sin bloqueo por días
 
 // -- ZONAS ACTIVAS -----------------------------------------
 
@@ -2166,17 +2166,7 @@ function getZonaEstadoPildoras(zona) {
 
 // Check if update is allowed: requires inventario done first
 function checkZonaBlockedUpdate(zona) {
-  const h = getZonaHistory()[zona] || {};
-  if (!h.inventario) {
-    return 'Primero debes hacer el inventario completo de ' + zona;
-  }
-  if (h.diario) {
-    const dias = Math.floor((Date.now() - new Date(h.diario.fecha).getTime()) / 86400000);
-    if (dias < DIAS_ACTUALIZACION) {
-      return 'Actualizacion de ' + zona + ' hecha hace ' + dias + 'd. Disponible en ' + (DIAS_ACTUALIZACION - dias) + ' dias.';
-    }
-  }
-  return null;
+  return null; // Sin bloqueo por días
 }
 
 // Get all zones that have inventario done and are ready for update
@@ -2244,8 +2234,8 @@ function getZonaEstado(zona) {
       return {
         estado: 'inventario-ok', color: 'var(--green)', bg: 'var(--green-dim)',
         label: `\u2713 Inv. ${fechaStr}${via}`,
-        blocked: true,
-        blockedMsg: `Inventario disponible en ${diasRestantes} día${diasRestantes !== 1 ? 's' : ''}`,
+        blocked: false,
+        blockedMsg: null,
         diasActualizacion: dias < DIAS_ACTUALIZACION ? DIAS_ACTUALIZACION - dias : null,
       };
     } else {
@@ -2264,8 +2254,8 @@ function getZonaEstado(zona) {
       return {
         estado: 'actualizacion-ok', color: '#b08000', bg: 'rgba(176,128,0,0.08)',
         label: `\u26A1 Act. ${fechaStr}`,
-        blocked: true,
-        blockedMsg: `Actualización disponible en ${diasRestantes} día${diasRestantes !== 1 ? 's' : ''}`,
+        blocked: false,
+        blockedMsg: null,
       };
     } else {
       return {
@@ -2332,7 +2322,7 @@ async function renderZonaStatus() {
       else if (estado.estado === 'actualizacion-old') actOld++;
       else sinBusqueda++;
 
-      const isBlocked = estado.blocked;
+      const isBlocked = false; // Bloqueo por días eliminado
       const chip = document.createElement('div');
       chip.style.cssText = `display:flex;align-items:center;gap:5px;padding:5px 10px;border-radius:20px;background:${estado.bg};border:1px solid ${estado.color};font-size:11px;cursor:${isBlocked ? 'not-allowed' : 'pointer'};opacity:${isBlocked ? '0.6' : '1'};transition:opacity 0.15s`;
       chip.title = isBlocked ? estado.blockedMsg : `Lanzar búsqueda: ${zona}`;
@@ -2850,12 +2840,7 @@ async function requestSearch() {
   const zonaEl = document.querySelector('#s-zona');
   if (!zonaEl) { showView('buscar'); return; }
   const zona = zonaEl.value;
-  const h = getZonaHistory()[zona] || {};
-  const hEntry = h.inventario ? h.inventario : (h.tipo === 'inventario' ? h : null);
-  if (hEntry && hEntry.fecha) {
-    const dias = Math.floor((Date.now() - new Date(hEntry.fecha).getTime()) / 86400000);
-    if (dias < DIAS_INVENTARIO) { showToast('Inventario de ' + zona + ' hecho hace ' + dias + 'd. Disponible en ' + (DIAS_INVENTARIO - dias) + ' dias.'); return; }
-  }
+  // Bloqueo por días eliminado — siempre se puede buscar
   showView('buscar');
   setMode('inventario');
   runSearch().catch(function(e) { console.error('runSearch error:', e); showToast('Error: ' + e.message); });
