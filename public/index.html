@@ -1423,6 +1423,12 @@ select.form-control optgroup {
             <button id="btn-actualizar-todas" class="btn btn-primary" style="font-size:12px;padding:6px 16px">Actualizar todas</button>
           </div>
           <div id="zona-status-list" style="display:flex;flex-direction:column;gap:6px"></div>
+          <div id="billing-error-warn" style="display:none;background:#fef2f2;border:1px solid #ef4444;border-radius:8px;padding:10px 14px;margin-top:10px;font-size:12px;color:#991b1b">
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:12px">
+              <span>⚠️ Último intento de búsqueda falló por falta de créditos en Anthropic. Las búsquedas están bloqueadas.</span>
+              <button onclick="clearBillingError()" style="background:#ef4444;color:white;border:none;border-radius:6px;padding:4px 12px;font-size:11px;cursor:pointer;font-weight:600;white-space:nowrap;flex-shrink:0">He recargado créditos</button>
+            </div>
+          </div>
         </div>
 
         <!-- RESUMEN SEMANAL -->
@@ -2380,6 +2386,10 @@ const CUSTOM_SOURCES_KEY = 'kimbo_custom_sources';
 
 async function addCustomSource(tipo) {
   if (!isAdmin()) { showToast('Esta acción requiere permisos de administrador'); return; }
+  if (await checkBillingErrorGuard()) {
+    showToast('⚠️ Último intento falló por falta de créditos. Recarga y pulsa "He recargado créditos" en Ajustes.');
+    return;
+  }
   const nameEl = document.getElementById('custom-source-' + tipo + '-name');
   const urlEl = document.getElementById('custom-source-' + tipo + '-url');
   const name = nameEl?.value.trim();
@@ -2551,6 +2561,46 @@ async function saveMercadoDB(data) {
 function getZonaHistory() {
   return _cache['zona_history'] || JSON.parse(localStorage.getItem('kimbo_zona_history') || '{}');
 }
+
+// ── MIGRACIÓN ZONA_HISTORY ─────────────────────────────────────
+async function migrateZonaHistoryIfNeeded() {
+  try {
+    const h = await cloudGet('zona_history') || {};
+    let needsMigration = false;
+    const migrated = {};
+    Object.keys(h).forEach(function(zona) {
+      const entry = h[zona];
+      if (entry && (entry.inventario || entry.diario)) {
+        needsMigration = true;
+        const inv = entry.inventario;
+        const dia = entry.diario;
+        if (dia && inv) {
+          const tInv = new Date(inv.fecha || 0).getTime();
+          const tDia = new Date(dia.fecha || 0).getTime();
+          migrated[zona] = tDia > tInv
+            ? { tipo: 'diario', fecha: dia.fecha, encontradas: dia.encontradas || 0 }
+            : { tipo: 'inventario', fecha: inv.fecha, encontradas: inv.encontradas || 0 };
+        } else if (dia) {
+          migrated[zona] = { tipo: 'diario', fecha: dia.fecha, encontradas: dia.encontradas || 0 };
+        } else if (inv) {
+          migrated[zona] = { tipo: 'inventario', fecha: inv.fecha, encontradas: inv.encontradas || 0 };
+        }
+      } else {
+        migrated[zona] = entry;
+      }
+    });
+    if (needsMigration) {
+      console.log('[Kimbo] Migrando zona_history al formato plano...');
+      await cloudSet('zona_history', migrated);
+      delete _cache['zona_history'];
+      console.log('[Kimbo] Migración completada:', Object.keys(migrated).length, 'zonas');
+    }
+  } catch(e) {
+    console.warn('[Kimbo] Error migrando zona_history:', e.message);
+  }
+}
+// ── FIN MIGRACIÓN ──────────────────────────────────────────────
+
 async function saveZonaHistory(zona, tipo, encontradas) {
   const h = await cloudGet('zona_history') || {};
   const now = new Date().toISOString();
@@ -2768,14 +2818,19 @@ function isAdmin() {
 }
 
 
-function requestSearch() {
+async function requestSearch() {
   if (!isAdmin()) { showToast('Esta acción requiere permisos de administrador'); return; }
+  if (await checkBillingErrorGuard()) {
+    showToast('⚠️ Último intento falló por falta de créditos. Recarga y pulsa "He recargado créditos" en Ajustes.');
+    return;
+  }
   const zonaEl = document.querySelector('#s-zona');
   if (!zonaEl) { showView('buscar'); return; }
   const zona = zonaEl.value;
   const h = getZonaHistory()[zona] || {};
-  if (h.inventario) {
-    const dias = Math.floor((Date.now() - new Date(h.inventario.fecha).getTime()) / 86400000);
+  const hEntry = h.inventario ? h.inventario : (h.tipo === 'inventario' ? h : null);
+  if (hEntry && hEntry.fecha) {
+    const dias = Math.floor((Date.now() - new Date(hEntry.fecha).getTime()) / 86400000);
     if (dias < DIAS_INVENTARIO) { showToast('Inventario de ' + zona + ' hecho hace ' + dias + 'd. Disponible en ' + (DIAS_INVENTARIO - dias) + ' dias.'); return; }
   }
   showView('buscar');
@@ -2930,6 +2985,44 @@ function resetTokenStats() {
   renderSettings();
   showToast('Contador reseteado');
 }
+
+
+// ── BILLING ERROR GUARD ────────────────────────────────────────
+async function checkBillingErrorGuard() {
+  if (localStorage.getItem('kimbo_last_billing_error') === '1') return true;
+  try {
+    const err = _cache['last_billing_error'] !== undefined
+      ? _cache['last_billing_error']
+      : await cloudGet('last_billing_error');
+    if (err && err.fecha) {
+      localStorage.setItem('kimbo_last_billing_error', '1');
+      return true;
+    }
+  } catch(_) {}
+  return false;
+}
+
+async function clearBillingError() {
+  localStorage.removeItem('kimbo_last_billing_error');
+  delete _cache['last_billing_error'];
+  try {
+    await fetch('https://kimbo-proxy.vercel.app/api/db?key=last_billing_error', {
+      method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(null)
+    });
+  } catch(_) {}
+  document.querySelectorAll('#billing-error-warn, #billing-settings-warn').forEach(function(el) {
+    el.style.display = 'none';
+  });
+  showToast('✅ Créditos restablecidos. Ya puedes buscar.');
+}
+
+async function showBillingWarningIfNeeded() {
+  const hasErr = await checkBillingErrorGuard();
+  document.querySelectorAll('#billing-error-warn, #billing-settings-warn').forEach(function(el) {
+    if (el) el.style.display = hasErr ? 'block' : 'none';
+  });
+}
+// ── FIN BILLING GUARD ──────────────────────────────────────────
 
 async function callClaude(prompt, maxTokens = 4000) {
   const resp = await fetch('https://kimbo-proxy.vercel.app/api/proxy', {
@@ -3797,140 +3890,6 @@ function parseJSON(text) {
   return null;
 }
 
-
-const EXTERNAL_SEARCH_ENDPOINT = '/api/search';
-
-function slugZonaTokens(zona) {
-  return (zona || '')
-    .toLowerCase()
-    .replace(/[áàä]/g,'a').replace(/[éèë]/g,'e').replace(/[íìï]/g,'i')
-    .replace(/[óòö]/g,'o').replace(/[úùü]/g,'u').replace(/ñ/g,'n')
-    .replace(/[()]/g,' ')
-    .split(/[\s,/-]+/)
-    .map(s => s.trim())
-    .filter(Boolean)
-    .filter(s => !['y','de','del','las','los','la','el','area','metropolitana','capital'].includes(s));
-}
-
-function getSearchBlocksForZone(zona, tipo) {
-  const z = zona || '';
-  const tipoTxt = tipo ? ` ${tipo}` : '';
-  const extraPromotoras =
-    z.toLowerCase().includes('madrid') ? ['culmia', 'neinor', 'aedas', 'metrovacesa', 'gestilar', 'pryconsa', 'ibosa'] :
-    z.toLowerCase().includes('marbella') || z.toLowerCase().includes('estepona') || z.toLowerCase().includes('fuengirola') ? ['aedas', 'metrovacesa', 'culmia', 'insur', 'kronos', 'aq acentor'] :
-    ['aedas', 'neinor', 'culmia', 'metrovacesa', 'kronos'];
-
-  return [
-    {
-      key: 'tempranas',
-      label: 'Señales tempranas',
-      queries: [
-        `licencia obra nueva ${z}${tipoTxt}`,
-        `nueva promocion residencial ${z}${tipoTxt}`,
-        `suelo adquirido promotora ${z}${tipoTxt}`,
-        `proyecto basico residencial ${z}${tipoTxt}`
-      ]
-    },
-    {
-      key: 'portales',
-      label: 'Portales',
-      queries: [
-        `idealista obra nueva ${z}${tipoTxt}`,
-        `fotocasa obra nueva ${z}${tipoTxt}`,
-        `pisos.com obra nueva ${z}${tipoTxt}`,
-        `viviendas nuevas ${z}${tipoTxt}`
-      ]
-    },
-    {
-      key: 'promotoras',
-      label: 'Promotoras',
-      queries: extraPromotoras.map(p => `${p} ${z} obra nueva${tipoTxt}`)
-    },
-    {
-      key: 'medios',
-      label: 'Medios',
-      queries: [
-        `promocion inmobiliaria ${z}${tipoTxt}`,
-        `residencial ${z}${tipoTxt}`,
-        `obra nueva ${z}${tipoTxt}`,
-        `promotora ${z}${tipoTxt}`
-      ]
-    }
-  ];
-}
-
-async function fetchExternalSearch(query) {
-  try {
-    const resp = await fetch(`${EXTERNAL_SEARCH_ENDPOINT}?query=${encodeURIComponent(query)}`);
-    if (!resp.ok) return [];
-    const data = await resp.json();
-    return Array.isArray(data) ? data : [];
-  } catch(_) {
-    return [];
-  }
-}
-
-function dedupeSearchResults(results) {
-  const seen = new Set();
-  const out = [];
-  for (const r of results || []) {
-    const url = (r.link || r.url || '').trim();
-    if (!url) continue;
-    if (seen.has(url)) continue;
-    seen.add(url);
-    out.push({
-      title: r.title || '',
-      link: url,
-      snippet: r.snippet || ''
-    });
-  }
-  return out;
-}
-
-function filterSearchResults(results, zona) {
-  const tokens = slugZonaTokens(zona);
-  return (results || []).filter(r => {
-    const text = `${r.title || ''} ${r.snippet || ''} ${r.link || ''}`.toLowerCase();
-    const hasRealEstate = /(obra nueva|promoci[oó]n|residencial|viviendas|pisos|homes|living|resort|apartamentos|chalets|villas|adosados)/i.test(text);
-    const hasZone = tokens.length ? tokens.some(t => text.includes(t)) : true;
-    return hasRealEstate && hasZone;
-  });
-}
-
-function limitSearchResults(results, max = 12) {
-  return (results || []).slice(0, max);
-}
-
-function buildExtractionPromptFromSearchResults(zona, hoy, tipoFiltro, camposJSON, searchResults) {
-  const bloqueTexto = searchResults.map((r, i) =>
-    `${i+1}. TITULO: ${r.title}\nURL: ${r.link}\nSNIPPET: ${r.snippet || ''}`).join('\n\n');
-
-  return `Eres un analista de prospección comercial para Kimbo Smart. Hoy es ${hoy}.
-
-ZONA OBJETIVO: ${zona}
-${tipoFiltro}
-
-Tu trabajo NO es buscar en internet. Ya te paso resultados de búsqueda prefiltrados.
-Debes leerlos y extraer promociones residenciales reales de obra nueva o desarrollos residenciales relevantes.
-Incluye promociones en fases tempranas, en construcción o comercialización si son reales.
-Si un resultado no parece una promoción concreta, ignóralo.
-
-Devuelve SOLO JSON válido, sin texto adicional.
-Formato esperado:
-${camposJSON}
-
-Reglas:
-- NO inventes datos.
-- Si faltan viviendas o precio, usa null.
-- Si detectas varias referencias a la misma promoción, unifícalas.
-- Usa como fuente la URL que te paso.
-- Si hay duda razonable pero parece promoción real, inclúyela con nivel_certeza_fase "medio" o "bajo".
-- Máximo 20 promociones.
-
-RESULTADOS A ANALIZAR:
-${bloqueTexto}`;
-}
-
 async function runSearch() {
   console.log('[Kimbo] runSearch iniciado');
   const btn = document.getElementById('runBtn');
@@ -4115,6 +4074,7 @@ REDES SOCIALES Y SEÑALES TEMPRANAS:
 - Twitter/X - noticias de sector inmobiliario en tiempo real`;
 
   // Para inventario completo, buscar zona a zona
+  
   if (currentMode === 'inventario') {
     const zonasInventario = zona === 'Costa del Sol (completa)' ? [
       'Marbella y Benahavís',
@@ -4140,129 +4100,204 @@ REDES SOCIALES Y SEÑALES TEMPRANAS:
     let todasNuevas = [];
     let huboErrores = false;
 
+    const fetchSearchResults = async (query) => {
+      const res = await fetch(`https://kimbo-proxy.vercel.app/api/search?query=${encodeURIComponent(query)}`);
+      if (!res.ok) throw new Error(`search ${res.status}`);
+      return await res.json();
+    };
+
+    const getBlockQueries = (zonaActual) => {
+      const z = zonaActual;
+      return {
+        tempranas: [
+          `licencia obra nueva ${z}`,
+          `promoción residencial ${z} licencia`,
+          `suelo adquirido promoción ${z}`
+        ],
+        portales: [
+          `site:idealista.com/venta-obranueva ${z}`,
+          `site:fotocasa.es/obra-nueva ${z}`,
+          `site:pisos.com obra nueva ${z}`
+        ],
+        promotoras: [
+          `promotora obra nueva ${z}`,
+          `site:aedashomes.com ${z} obra nueva`,
+          `site:culmia.com OR site:neinorhomes.com OR site:metrovacesa.com ${z}`
+        ],
+        noticias: [
+          `promoción viviendas ${z}`,
+          `site:brainsre.news OR site:idealista.com/news ${z} promoción`,
+          `obra nueva ${z} promotora`
+        ]
+      };
+    };
+
+    const filterSearchResults = (results, zonaActual) => {
+      const seen = new Set();
+      return (results || []).filter(r => {
+        if (!r || !r.link || seen.has(r.link)) return false;
+        seen.add(r.link);
+        const txt = `${r.title || ''} ${r.snippet || ''}`.toLowerCase();
+        const ztxt = zonaActual.toLowerCase();
+        const hasHousing = txt.includes('obra nueva') || txt.includes('promoción') || txt.includes('residencial') || txt.includes('viviendas') || txt.includes('chalets') || txt.includes('pisos');
+        const hasZone = ztxt.split(/[(),]/).some(part => {
+          const p = part.trim().toLowerCase();
+          return p && p.length > 3 && txt.includes(p);
+        });
+        return hasHousing && (hasZone || txt.includes('madrid'));
+      }).slice(0, 25);
+    };
+
+    const parsePromotionsFromSearch = async (zonaActual, blockName, results) => {
+      if (!results.length) return [];
+      const compact = results.map((r, i) => `${i+1}. ${r.title}\nURL: ${r.link}\nSnippet: ${r.snippet || ''}`).join('\n\n');
+      const prompt = `Eres un analista que extrae promociones inmobiliarias residenciales a partir de resultados de búsqueda ya capturados.
+Devuelve SOLO un array JSON válido. No expliques nada.
+Zona objetivo: ${zonaActual}. ${tipoFiltro}
+Si varias entradas hablan del mismo desarrollo, consolídalas en una sola promoción.
+Solo incluye promociones residenciales de obra nueva o desarrollos claros. Excluye listados genéricos, directorios y páginas de categoría sin promoción concreta salvo que revelen claramente un proyecto identificable.
+
+Formato exacto de salida:
+[{
+  "id_promocion": "string o null",
+  "nombre_promocion": "string o null",
+  "promotora": "string o null",
+  "municipio": "string o null",
+  "zona_urbanizacion": "string o null",
+  "tipologia": "Apartamentos|Villas|Adosados|Dúplex|Mixto|null",
+  "num_viviendas": null,
+  "precio_desde": null,
+  "precio_hasta": null,
+  "precio_medio_m2": null,
+  "estado_obra": "Suelo adquirido|Proyecto basico|Licencia solicitada|Licencia concedida|En construccion|Entrega proxima|null",
+  "fecha_entrega_prevista": null,
+  "lleva_domotica": "SÍ|NO|NO ESPECIFICADO|null",
+  "marca_domotica": null,
+  "lujo": "sí|no|null",
+  "score_total": 0,
+  "nivel_oportunidad": "VERY HOT|HOT|WARM|LOW|null",
+  "nivel_certeza_fase": "alto|medio|bajo|null",
+  "indicios_clave": "string o null",
+  "urgencia_contacto": "ALTA|MEDIA|BAJA|null",
+  "razon_urgencia": "string o null",
+  "web_promotora": null,
+  "telefono_promotora": null,
+  "email_promotora": null,
+  "fuente": "${blockName}",
+  "url_fuente": "string o null",
+  "notas_agente": "string o null"
+}]
+
+Resultados de búsqueda:
+${compact}`;
+      const txt = await callClaude2(prompt, 3500);
+      const parsed = parseJSON(txt);
+      return Array.isArray(parsed) ? parsed : [];
+    };
+
     for (let i = 0; i < zonasInventario.length; i++) {
       const zonaActual = zonasInventario[i];
       const stepId = `zona_${i}`;
       addStep(stepId, '<div class="spin"></div>', `Buscando en ${zonaActual}... (${i+1}/${zonasInventario.length})`, 'active');
 
       try {
-        const bloques = getSearchBlocksForZone(zonaActual, tipo);
-        let promocionesZona = [];
-        let usoBusquedaExterna = false;
+        const queriesByBlock = getBlockQueries(zonaActual);
+        const bloquesActivos = ['tempranas','portales','promotoras','noticias'];
+        let parsedZonaTotal = [];
 
-        for (const bloque of bloques) {
-          let resultadosBloque = [];
-
-          for (const q of bloque.queries) {
-            const data = await fetchExternalSearch(q);
-            if (Array.isArray(data) && data.length) {
-              usoBusquedaExterna = true;
-              resultadosBloque = resultadosBloque.concat(data);
+        for (const block of bloquesActivos) {
+          let raw = [];
+          for (const q of queriesByBlock[block]) {
+            try {
+              const r = await fetchSearchResults(q);
+              raw = raw.concat(Array.isArray(r) ? r : []);
+              await sleep(150);
+            } catch(err) {
+              console.warn('[SEARCH ERROR]', block, q, err.message);
             }
           }
-
-          resultadosBloque = dedupeSearchResults(resultadosBloque);
-          resultadosBloque = filterSearchResults(resultadosBloque, zonaActual);
-          resultadosBloque = limitSearchResults(resultadosBloque, 12);
-
-          console.log(`[BLOQUE ${bloque.key}]`, zonaActual, resultadosBloque.length);
-
-          if (!resultadosBloque.length) continue;
-
-          const promptResultados = buildExtractionPromptFromSearchResults(
-            zonaActual, hoy, tipoFiltro, camposJSON, resultadosBloque
-          );
-
-          const rawBloque = await callClaude2(promptResultados, 2200);
-          const parsedBloque = parseJSON(rawBloque);
-          const encontradosBloque = Array.isArray(parsedBloque) ? parsedBloque : [];
-
-          if (encontradosBloque.length) {
-            promocionesZona = promocionesZona.concat(encontradosBloque);
-          }
+          const filtered = filterSearchResults(raw, zonaActual);
+          console.log(`[BLOQUE ${block}] ${zonaActual}`, filtered.length);
+          if (!filtered.length) continue;
+          const parsedBlock = await parsePromotionsFromSearch(zonaActual, block, filtered);
+          if (parsedBlock.length) parsedZonaTotal = parsedZonaTotal.concat(parsedBlock);
         }
 
-        if (!usoBusquedaExterna) {
-          const promptFallback = `Eres un agente de prospección comercial especializado en detectar proyectos residenciales en FASES TEMPRANAS. Trabajas para Kimbo Smart, empresa instaladora de domotica. Hoy es ${hoy}.
-
-ZONA: ${zonaActual}
-${tipoFiltro}
-
-Busca promociones residenciales reales en esta zona. Incluye fases tempranas, construcción y comercialización si son relevantes.
-Devuelve SOLO JSON válido, sin texto adicional.
-Formato:
-${camposJSON}`;
-          const rawFallback = await callClaude(promptFallback, 2400);
-          const parsedFallback = parseJSON(rawFallback);
-          promocionesZona = Array.isArray(parsedFallback) ? parsedFallback : [];
-        }
-
-        // Normalizar y deduplicar dentro de la propia zona
-        const mergedZona = [];
-        for (const item of promocionesZona) {
-          if (!item || typeof item !== 'object') continue;
-          const matchZona = encontrarPromocionCoincidente(item, mergedZona);
-          if (matchZona && matchZona.match) {
-            mergedZona[matchZona.idx] = fusionarPromociones(mergedZona[matchZona.idx], item);
+        let parsedZona = [];
+        for (const p of parsedZonaTotal) {
+          const limpio = {
+            ...p,
+            nombre_promocion: p.nombre_promocion || null,
+            promotora: p.promotora || null,
+            municipio: p.municipio || zonaActual,
+            url_fuente: p.url_fuente || null,
+            fuente: p.fuente || 'Busqueda',
+          };
+          const matchLocal = encontrarPromocionCoincidente(limpio, parsedZona);
+          if (matchLocal.match) {
+            parsedZona[matchLocal.idx] = fusionarPromociones(parsedZona[matchLocal.idx], limpio);
           } else {
-            mergedZona.push(item);
+            parsedZona.push(limpio);
           }
         }
 
         const dbActual = await getDB();
-        const realesZona = [];
-        const fusionadasConDB = [];
+        let realesZona = [];
+        let fusionadas = [];
 
-        for (const p of mergedZona) {
-          const matchDB = encontrarPromocionCoincidente(p, dbActual);
-          if (matchDB && matchDB.match) {
-            dbActual[matchDB.idx] = fusionarPromociones(dbActual[matchDB.idx], p);
-            fusionadasConDB.push(p);
+        for (const p of parsedZona) {
+          const matchDb = encontrarPromocionCoincidente(p, dbActual);
+          if (matchDb.match) {
+            dbActual[matchDb.idx] = fusionarPromociones(dbActual[matchDb.idx], p);
+            fusionadas.push(p);
           } else {
-            realesZona.push({
-              ...p,
-              score_total: Number(p.score_total || 0),
-              precio_desde: p.precio_desde ? Number(p.precio_desde) : null,
-              precio_hasta: p.precio_hasta ? Number(p.precio_hasta) : null,
-              precio_medio_m2: p.precio_medio_m2 ? Number(p.precio_medio_m2) : null,
-              num_viviendas: p.num_viviendas ? Number(p.num_viviendas) : null,
-              estado_obra: p.estado_obra || null,
-              lleva_domotica: ['SÍ','NO','NO ESPECIFICADO'].includes(p.lleva_domotica) ? p.lleva_domotica : 'NO ESPECIFICADO',
-              nivel_oportunidad: ['VERY HOT','HOT','WARM','LOW'].includes(p.nivel_oportunidad) ? p.nivel_oportunidad : null,
-              nivel_certeza_fase: ['alto','medio','bajo'].includes(p.nivel_certeza_fase) ? p.nivel_certeza_fase : null,
-              indicios_clave: p.indicios_clave || null,
-              lujo: p.lujo === 'sí' ? 'sí' : (p.lujo === 'no' ? 'no' : null),
-              urgencia_contacto: p.urgencia_contacto || nivelToUrgencia[p.nivel_oportunidad] || 'MEDIA',
-              accion_recomendada: calcularAccion({ ...p, estado_comercial: 'Pendiente' })?.accion || null,
-              fecha_ultimo_movimiento: fechaHoy + 'T00:00:00.000Z',
-              tipo_ultimo_movimiento: 'deteccion',
-              sin_contacto: true,
-              sin_decisor: false,
-              pendiente_validacion: (p.nivel_certeza_fase === 'bajo' || p.nivel_certeza_fase === 'medio') && (p.nivel_oportunidad === 'VERY HOT' || p.nivel_oportunidad === 'HOT'),
-              fecha_deteccion: fechaHoy,
-              estado_comercial: 'Pendiente',
-              comercial_asignado: '',
-              es_nueva: true,
-              contactos_linkedin: [],
-              _contactos_cargando: true
-            });
+            realesZona.push(p);
           }
         }
 
-        console.log('[REALES_ZONA]', zonaActual, realesZona.map(p => p.id_promocion || p.nombre_promocion || p.promotora));
-        console.log('[FUSIONADAS_CON_DB]', zonaActual, fusionadasConDB.map(p => p.id_promocion || p.nombre_promocion || p.promotora));
+        console.log(`[REALES_ZONA] ${zonaActual}`, realesZona.map(p => p.id_promocion || p.nombre_promocion || p.url_fuente));
+        console.log(`[FUSIONADAS_CON_DB] ${zonaActual}`, fusionadas.map(p => p.id_promocion || p.nombre_promocion || p.url_fuente));
 
-        await saveDB([...realesZona, ...dbActual]);
-        todasNuevas = [...todasNuevas, ...realesZona];
-        updateBadge();
+        if (realesZona.length) {
+          const fechaHoy = new Date().toISOString().slice(0,10);
+          const nivelToUrgencia = { VERY_HOT:'ALTA', HOT:'ALTA', WARM:'MEDIA', LOW:'BAJA', 'VERY HOT':'ALTA' };
+          realesZona = realesZona.map(p => ({
+            ...p,
+            id_promocion: p.id_promocion || generarIdPromocion(p),
+            score_total: Number(p.score_total) || 0,
+            nivel_oportunidad: ['VERY HOT','HOT','WARM','LOW'].includes(p.nivel_oportunidad) ? p.nivel_oportunidad : null,
+            nivel_certeza_fase: ['alto','medio','bajo'].includes(p.nivel_certeza_fase) ? p.nivel_certeza_fase : null,
+            indicios_clave: p.indicios_clave || null,
+            lujo: p.lujo === 'sí' ? 'sí' : (p.lujo === 'no' ? 'no' : null),
+            urgencia_contacto: p.urgencia_contacto || nivelToUrgencia[p.nivel_oportunidad] || 'MEDIA',
+            accion_recomendada: calcularAccion({ ...p, estado_comercial: 'Pendiente' })?.accion || null,
+            fecha_ultimo_movimiento: fechaHoy + 'T00:00:00.000Z',
+            tipo_ultimo_movimiento: 'deteccion',
+            sin_contacto: true,
+            sin_decisor: false,
+            pendiente_validacion: (p.nivel_certeza_fase === 'bajo' || p.nivel_certeza_fase === 'medio') && (p.nivel_oportunidad === 'VERY HOT' || p.nivel_oportunidad === 'HOT'),
+            fecha_deteccion: fechaHoy,
+            estado_comercial: 'Pendiente',
+            comercial_asignado: '',
+            es_nueva: true,
+            contactos_linkedin: [],
+            _contactos_cargando: true
+          }));
+          await saveDB([...realesZona, ...dbActual]);
+          todasNuevas = [...todasNuevas, ...realesZona];
+          updateBadge();
+        } else {
+          await saveDB(dbActual);
+        }
 
-        updateStep(stepId, '\u2713', `${zonaActual} - ${realesZona.length} nuevas (${fusionadasConDB.length} fusionadas)`, 'done');
+        updateStep(stepId, '\u2713', `${zonaActual} - ${realesZona.length} nuevas`, 'done');
       } catch(e) {
+        console.error('[ERROR ZONA]', zonaActual, e);
         updateStep(stepId, '\u26A0', `${zonaActual} - error: ${e.message}`, 'err');
         huboErrores = true;
       }
 
-      await sleep(500);
+      await sleep(600);
     }
 
     renderSearchResults(todasNuevas);
@@ -4287,6 +4322,7 @@ ${camposJSON}`;
     btn.disabled = false;
     return;
   }
+
 
   // MODO DIARIO - búsqueda de novedades
   const lastSearch = await getLastSearch();
@@ -5684,6 +5720,8 @@ function kimboInit() {
   (async function() {
     try {
       await preloadCloudData();
+    await migrateZonaHistoryIfNeeded();
+    await showBillingWarningIfNeeded();
       await loadTokenStats();
       await renderDashboard();
       await updateBadge();
@@ -7168,6 +7206,12 @@ function renderPanelGenerico(el, data, tipo) {
   window.fusionarPromociones = fusionarPromociones;
   window.aplicarAutomatizaciones = aplicarAutomatizaciones;
   window.setDashQuickFilter = setDashQuickFilter;
+  window.checkBillingErrorGuard = checkBillingErrorGuard;
+  window.clearBillingError = clearBillingError;
+  window.showBillingWarningIfNeeded = showBillingWarningIfNeeded;
+  window.migrateZonaHistoryIfNeeded = migrateZonaHistoryIfNeeded;
+  window.clearBillingError = clearBillingError;
+  window.showBillingWarningIfNeeded = showBillingWarningIfNeeded;
   window.getPerfilesPrioritarios = getPerfilesPrioritarios;
   window.renderActivityLog = renderActivityLog;
   window.runPartners = runPartners;
