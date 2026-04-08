@@ -6517,6 +6517,19 @@ function encontrarPromocionCoincidente(nueva, existentes) {
   return { match: false };
 }
 
+function generarIdPromocion(p) {
+  const base = (
+    (p.nombre_promocion || '') +
+    (p.promotora || '') +
+    (p.municipio || '')
+  ).toLowerCase();
+
+  return base
+    .replace(/\s+/g, '-')
+    .replace(/[^a-z0-9\-]/g, '')
+    .slice(0, 50);
+}
+  
 // Fusiona dos registros: base es el existente, nueva es la recién detectada
 // Regla: enriquecer campos vacíos + priorizar fuentes más fiables
 function fusionarPromociones(base, nueva) {
