@@ -4226,8 +4226,10 @@ ${compact}`;
             contactos_linkedin: [],
             _contactos_cargando: true
           }));
-          await saveDB([...realesZona, ...dbActual]);
-          todasNuevas = [...todasNuevas, ...realesZona];
+          const nuevasConScoring = aplicarScoringLocal(realesZona);
+
+          await saveDB([...nuevasConScoring, ...dbActual]);
+          todasNuevas = [...todasNuevas, ...nuevasConScoring];
           updateBadge();
         } else {
           await saveDB(dbActual);
