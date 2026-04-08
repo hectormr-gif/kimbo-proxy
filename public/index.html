@@ -2621,7 +2621,7 @@ async function cleanInvalidZonaHistory(zonasToRemove) {
     console.warn('[Kimbo] Error limpiando zona_history:', e.message);
   }
 }
-// ── FIN LIMPIEZA ──────────────────────────────────────────────
+// ── FIN LIMPIEZA ───────────────────────────────────────────────
 
 
 async function saveZonaHistory(zona, tipo, encontradas) {
@@ -4258,13 +4258,14 @@ Si no hay promociones, responde: []`;
         }
 
         const encontradas = Array.isArray(parsedZona) ? parsedZona : [];
+        console.log('[DEBUG1] encontradas ids:', encontradas.map(p => p.id_promocion));
 
         // 4 capas de dedup acumulativo entre zonas
         // Dedup inteligente: detecta nuevas vs coincidentes para fusionar
         const nuevasZonaRaw = [];
         const actualizadasZona = [];
         encontradas.forEach(function(p) {
-          if (idxAcumulados.includes(p.id_promocion)) return;
+          if (idxAcumulados.includes(p.id_promocion)) { console.log('[SKIP idxAcumulados]', p.id_promocion, p.nombre_promocion); return; }
           const coincidencia = encontrarPromocionCoincidente(p, todasNuevas);
           if (coincidencia.match) {
             todasNuevas[coincidencia.idx] = fusionarPromociones(todasNuevas[coincidencia.idx], p);
@@ -4274,6 +4275,7 @@ Si no hay promociones, responde: []`;
           }
         });
         const nuevasZona = nuevasZonaRaw;
+        console.log('[DEBUG3] nuevasZona ids:', nuevasZona.map(p => p.id_promocion));
         if (actualizadasZona.length > 0) {
           console.log('[Kimbo] Fusionadas', actualizadasZona.length, 'en zona:', actualizadasZona.slice(0,3).join(', '));
         }
@@ -4306,6 +4308,8 @@ Si no hay promociones, responde: []`;
               fecha_deteccion: fechaHoy, estado_comercial: 'Pendiente',
               comercial_asignado: '', es_nueva: true, contactos_linkedin: [], _contactos_cargando: true
             }));
+          console.log('[FILTRADAS existingIds] existingIds tiene', existingIds.size, 'ids. nuevasZona:', nuevasZona.map(p=>p.id_promocion));
+          console.log('[REALES_ZONA]', realesZona.map(p => p.id_promocion));
           await saveDB([...realesZona, ...dbActual]);
           todasNuevas = [...todasNuevas, ...realesZona];
           updateBadge();
@@ -5742,6 +5746,7 @@ function kimboInit() {
     try {
       await preloadCloudData();
     await migrateZonaHistoryIfNeeded();
+    // Clean Madrid zones that were incorrectly marked from a failed search
     await cleanInvalidZonaHistory(['Madrid capital','Madrid norte','Madrid oeste (Pozuelo, Las Rozas, Majadahonda)','Madrid sur','Madrid este']);
     await showBillingWarningIfNeeded();
       await loadTokenStats();
@@ -6730,7 +6735,7 @@ async function cleanInvalidZonaHistory(zonasToRemove) {
     console.warn('[Kimbo] Error limpiando zona_history:', e.message);
   }
 }
-// ── FIN LIMPIEZA ──────────────────────────────────────────────
+// ── FIN LIMPIEZA ───────────────────────────────────────────────
 
 // ── SCORING LOCAL (para promociones sin datos de Claude) ──────────
 function calcularScoreLocal(p) {
