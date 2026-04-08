@@ -16,6 +16,7 @@ const ALLOWED_KEYS = [
   'team',
   'custom_sources',
   'tokens',
+  'last_billing_error',
 ];
 
 const DEFAULTS = {
@@ -31,6 +32,7 @@ const DEFAULTS = {
   team:                  ['Ferni', 'Malu', 'Gonzalo', 'Héctor'],
   custom_sources:        {},
   tokens:                { input: 0, output: 0, calls: 0, historial: [] },
+  last_billing_error:    null,
 };
 
 async function redis(cmd, ...args) {
