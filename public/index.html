@@ -1423,12 +1423,6 @@ select.form-control optgroup {
             <button id="btn-actualizar-todas" class="btn btn-primary" style="font-size:12px;padding:6px 16px">Actualizar todas</button>
           </div>
           <div id="zona-status-list" style="display:flex;flex-direction:column;gap:6px"></div>
-          <div id="billing-error-warn" style="display:none;background:#fef2f2;border:1px solid #ef4444;border-radius:8px;padding:10px 14px;margin-top:10px;font-size:12px;color:#991b1b">
-            <div style="display:flex;align-items:center;justify-content:space-between;gap:12px">
-              <span>⚠️ Último intento de búsqueda falló por falta de créditos en Anthropic. Las búsquedas están bloqueadas.</span>
-              <button onclick="clearBillingError()" style="background:#ef4444;color:white;border:none;border-radius:6px;padding:4px 12px;font-size:11px;cursor:pointer;font-weight:600;white-space:nowrap;flex-shrink:0">He recargado créditos</button>
-            </div>
-          </div>
         </div>
 
         <!-- RESUMEN SEMANAL -->
@@ -2111,6 +2105,7 @@ select.form-control optgroup {
 <div class="toast" id="toast"></div>
 
 <script>
+
 const DB_KEY = 'kimbo_promociones';
 const ZONA_HISTORY_KEY = 'kimbo_zona_history';
 const SEARCH_LOG_KEY = 'kimbo_search_log';
@@ -2131,8 +2126,8 @@ const PARENT_ZONES = {
   'Sevilla capital': ['Sevilla área metropolitana'],
 };
 
-const DIAS_INVENTARIO = 0; // Sin bloqueo por días
-const DIAS_ACTUALIZACION = 0; // Sin bloqueo por días
+const DIAS_INVENTARIO = 30;
+const DIAS_ACTUALIZACION = 7;
 
 // -- ZONAS ACTIVAS -----------------------------------------
 
@@ -2166,7 +2161,17 @@ function getZonaEstadoPildoras(zona) {
 
 // Check if update is allowed: requires inventario done first
 function checkZonaBlockedUpdate(zona) {
-  return null; // Sin bloqueo por días
+  const h = getZonaHistory()[zona] || {};
+  if (!h.inventario) {
+    return 'Primero debes hacer el inventario completo de ' + zona;
+  }
+  if (h.diario) {
+    const dias = Math.floor((Date.now() - new Date(h.diario.fecha).getTime()) / 86400000);
+    if (dias < DIAS_ACTUALIZACION) {
+      return 'Actualizacion de ' + zona + ' hecha hace ' + dias + 'd. Disponible en ' + (DIAS_ACTUALIZACION - dias) + ' dias.';
+    }
+  }
+  return null;
 }
 
 // Get all zones that have inventario done and are ready for update
@@ -2234,8 +2239,8 @@ function getZonaEstado(zona) {
       return {
         estado: 'inventario-ok', color: 'var(--green)', bg: 'var(--green-dim)',
         label: `\u2713 Inv. ${fechaStr}${via}`,
-        blocked: false,
-        blockedMsg: null,
+        blocked: true,
+        blockedMsg: `Inventario disponible en ${diasRestantes} día${diasRestantes !== 1 ? 's' : ''}`,
         diasActualizacion: dias < DIAS_ACTUALIZACION ? DIAS_ACTUALIZACION - dias : null,
       };
     } else {
@@ -2254,8 +2259,8 @@ function getZonaEstado(zona) {
       return {
         estado: 'actualizacion-ok', color: '#b08000', bg: 'rgba(176,128,0,0.08)',
         label: `\u26A1 Act. ${fechaStr}`,
-        blocked: false,
-        blockedMsg: null,
+        blocked: true,
+        blockedMsg: `Actualización disponible en ${diasRestantes} día${diasRestantes !== 1 ? 's' : ''}`,
       };
     } else {
       return {
@@ -2322,7 +2327,7 @@ async function renderZonaStatus() {
       else if (estado.estado === 'actualizacion-old') actOld++;
       else sinBusqueda++;
 
-      const isBlocked = false; // Bloqueo por días eliminado
+      const isBlocked = estado.blocked;
       const chip = document.createElement('div');
       chip.style.cssText = `display:flex;align-items:center;gap:5px;padding:5px 10px;border-radius:20px;background:${estado.bg};border:1px solid ${estado.color};font-size:11px;cursor:${isBlocked ? 'not-allowed' : 'pointer'};opacity:${isBlocked ? '0.6' : '1'};transition:opacity 0.15s`;
       chip.title = isBlocked ? estado.blockedMsg : `Lanzar búsqueda: ${zona}`;
@@ -2375,10 +2380,6 @@ const CUSTOM_SOURCES_KEY = 'kimbo_custom_sources';
 
 async function addCustomSource(tipo) {
   if (!isAdmin()) { showToast('Esta acción requiere permisos de administrador'); return; }
-  if (await checkBillingErrorGuard()) {
-    showToast('⚠️ Último intento falló por falta de créditos. Recarga y pulsa "He recargado créditos" en Ajustes.');
-    return;
-  }
   const nameEl = document.getElementById('custom-source-' + tipo + '-name');
   const urlEl = document.getElementById('custom-source-' + tipo + '-url');
   const name = nameEl?.value.trim();
@@ -2550,70 +2551,6 @@ async function saveMercadoDB(data) {
 function getZonaHistory() {
   return _cache['zona_history'] || JSON.parse(localStorage.getItem('kimbo_zona_history') || '{}');
 }
-
-// ── MIGRACIÓN ZONA_HISTORY ─────────────────────────────────────
-async function migrateZonaHistoryIfNeeded() {
-  try {
-    const h = await cloudGet('zona_history') || {};
-    let needsMigration = false;
-    const migrated = {};
-    Object.keys(h).forEach(function(zona) {
-      const entry = h[zona];
-      if (entry && (entry.inventario || entry.diario)) {
-        needsMigration = true;
-        const inv = entry.inventario;
-        const dia = entry.diario;
-        if (dia && inv) {
-          const tInv = new Date(inv.fecha || 0).getTime();
-          const tDia = new Date(dia.fecha || 0).getTime();
-          migrated[zona] = tDia > tInv
-            ? { tipo: 'diario', fecha: dia.fecha, encontradas: dia.encontradas || 0 }
-            : { tipo: 'inventario', fecha: inv.fecha, encontradas: inv.encontradas || 0 };
-        } else if (dia) {
-          migrated[zona] = { tipo: 'diario', fecha: dia.fecha, encontradas: dia.encontradas || 0 };
-        } else if (inv) {
-          migrated[zona] = { tipo: 'inventario', fecha: inv.fecha, encontradas: inv.encontradas || 0 };
-        }
-      } else {
-        migrated[zona] = entry;
-      }
-    });
-    if (needsMigration) {
-      console.log('[Kimbo] Migrando zona_history al formato plano...');
-      await cloudSet('zona_history', migrated);
-      delete _cache['zona_history'];
-      console.log('[Kimbo] Migración completada:', Object.keys(migrated).length, 'zonas');
-    }
-  } catch(e) {
-    console.warn('[Kimbo] Error migrando zona_history:', e.message);
-  }
-}
-// ── FIN MIGRACIÓN ──────────────────────────────────────────────
-
-// ── LIMPIEZA ZONAS CON BÚSQUEDA FALLIDA ───────────────────────
-async function cleanInvalidZonaHistory(zonasToRemove) {
-  try {
-    delete _cache['zona_history'];
-    const h = await cloudGet('zona_history') || {};
-    let changed = false;
-    zonasToRemove.forEach(function(zona) {
-      if (h[zona]) {
-        delete h[zona];
-        changed = true;
-        console.log('[Kimbo] Eliminada entrada de zona_history para:', zona);
-      }
-    });
-    if (changed) {
-      await cloudSet('zona_history', h);
-      delete _cache['zona_history'];
-    }
-  } catch(e) {
-    console.warn('[Kimbo] Error limpiando zona_history:', e.message);
-  }
-}
-// ── FIN LIMPIEZA ───────────────────────────────────────────────
-
-
 async function saveZonaHistory(zona, tipo, encontradas) {
   const h = await cloudGet('zona_history') || {};
   const now = new Date().toISOString();
@@ -2831,16 +2768,16 @@ function isAdmin() {
 }
 
 
-async function requestSearch() {
+function requestSearch() {
   if (!isAdmin()) { showToast('Esta acción requiere permisos de administrador'); return; }
-  if (await checkBillingErrorGuard()) {
-    showToast('⚠️ Último intento falló por falta de créditos. Recarga y pulsa "He recargado créditos" en Ajustes.');
-    return;
-  }
   const zonaEl = document.querySelector('#s-zona');
   if (!zonaEl) { showView('buscar'); return; }
   const zona = zonaEl.value;
-  // Bloqueo por días eliminado — siempre se puede buscar
+  const h = getZonaHistory()[zona] || {};
+  if (h.inventario) {
+    const dias = Math.floor((Date.now() - new Date(h.inventario.fecha).getTime()) / 86400000);
+    if (dias < DIAS_INVENTARIO) { showToast('Inventario de ' + zona + ' hecho hace ' + dias + 'd. Disponible en ' + (DIAS_INVENTARIO - dias) + ' dias.'); return; }
+  }
   showView('buscar');
   setMode('inventario');
   runSearch().catch(function(e) { console.error('runSearch error:', e); showToast('Error: ' + e.message); });
@@ -2993,44 +2930,6 @@ function resetTokenStats() {
   renderSettings();
   showToast('Contador reseteado');
 }
-
-
-// ── BILLING ERROR GUARD ────────────────────────────────────────
-async function checkBillingErrorGuard() {
-  if (localStorage.getItem('kimbo_last_billing_error') === '1') return true;
-  try {
-    const err = _cache['last_billing_error'] !== undefined
-      ? _cache['last_billing_error']
-      : await cloudGet('last_billing_error');
-    if (err && err.fecha) {
-      localStorage.setItem('kimbo_last_billing_error', '1');
-      return true;
-    }
-  } catch(_) {}
-  return false;
-}
-
-async function clearBillingError() {
-  localStorage.removeItem('kimbo_last_billing_error');
-  delete _cache['last_billing_error'];
-  try {
-    await fetch('https://kimbo-proxy.vercel.app/api/db?key=last_billing_error', {
-      method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(null)
-    });
-  } catch(_) {}
-  document.querySelectorAll('#billing-error-warn, #billing-settings-warn').forEach(function(el) {
-    el.style.display = 'none';
-  });
-  showToast('✅ Créditos restablecidos. Ya puedes buscar.');
-}
-
-async function showBillingWarningIfNeeded() {
-  const hasErr = await checkBillingErrorGuard();
-  document.querySelectorAll('#billing-error-warn, #billing-settings-warn').forEach(function(el) {
-    if (el) el.style.display = hasErr ? 'block' : 'none';
-  });
-}
-// ── FIN BILLING GUARD ──────────────────────────────────────────
 
 async function callClaude(prompt, maxTokens = 4000) {
   const resp = await fetch('https://kimbo-proxy.vercel.app/api/proxy', {
@@ -4106,7 +4005,6 @@ REDES SOCIALES Y SEÑALES TEMPRANAS:
 
     let todasNuevas = [];
     let idsAcumulados = [...idsConocidos];
-    let huboErrores = false;
 
     for (let i = 0; i < zonasInventario.length; i++) {
       const zonaActual = zonasInventario[i];
@@ -4241,61 +4139,73 @@ Si no hay promociones, responde: []`;
           const rawFmt = await callClaude2(promptFmt, 8000);
           parsedZona = parseJSON(rawFmt);
         }
-
         const encontradas = Array.isArray(parsedZona) ? parsedZona : [];
-        console.log('[DEBUG1] encontradas ids:', encontradas.map(p => p.id_promocion));
 
-        // 4 capas de dedup acumulativo entre zonas
-        // Dedup inteligente: detecta nuevas vs coincidentes para fusionar
+        // Dedup inteligente entre subzonas: NO descartamos por id_promocion generado por Claude
+        // porque puede colisionar entre ciudades o búsquedas distintas.
         const nuevasZonaRaw = [];
         const actualizadasZona = [];
         encontradas.forEach(function(p) {
-          if (idxAcumulados.includes(p.id_promocion)) { console.log('[SKIP idxAcumulados]', p.id_promocion, p.nombre_promocion); return; }
           const coincidencia = encontrarPromocionCoincidente(p, todasNuevas);
           if (coincidencia.match) {
             todasNuevas[coincidencia.idx] = fusionarPromociones(todasNuevas[coincidencia.idx], p);
-            actualizadasZona.push(p.nombre_promocion || p.promotora);
+            actualizadasZona.push(p.nombre_promocion || p.promotora || p.id_promocion || 'promoción');
           } else {
             nuevasZonaRaw.push(p);
           }
         });
         const nuevasZona = nuevasZonaRaw;
-        console.log('[DEBUG3] nuevasZona ids:', nuevasZona.map(p => p.id_promocion));
         if (actualizadasZona.length > 0) {
           console.log('[Kimbo] Fusionadas', actualizadasZona.length, 'en zona:', actualizadasZona.slice(0,3).join(', '));
         }
-        idsAcumulados = [...idsAcumulados, ...nuevasZona.map(p => p.id_promocion)];
+        idsAcumulados = [...idsAcumulados, ...nuevasZona.map(p => p.id_promocion).filter(Boolean)];
 
-        // Guardar en BD inmediatamente
+        // Guardar en BD inmediatamente usando dedup inteligente contra BD real
         if (nuevasZona.length > 0) {
           const fechaHoy = new Date().toISOString().split('T')[0];
           const dbActual = await getDB();
-          const existingIds = new Set(dbActual.map(x => x.id_promocion));
           const nivelToUrgencia = { 'VERY HOT': 'ALTA', 'HOT': 'ALTA', 'WARM': 'MEDIA', 'LOW': 'BAJA' };
-        const realesZona = nuevasZona
-            .filter(p => !existingIds.has(p.id_promocion))
-            .map(p => ({
-              ...p,
-              // Fallback validation: ensure all new fields exist
-              score_total: p.score_total || null,
-              nivel_oportunidad: ['VERY HOT','HOT','WARM','LOW'].includes(p.nivel_oportunidad) ? p.nivel_oportunidad : null,
-              nivel_certeza_fase: ['alto','medio','bajo'].includes(p.nivel_certeza_fase) ? p.nivel_certeza_fase : null,
-              indicios_clave: p.indicios_clave || null,
-              lujo: p.lujo === 'sí' ? 'sí' : (p.lujo === 'no' ? 'no' : null),
-              // Auto-map nivel_oportunidad → urgencia_contacto if not set
-              urgencia_contacto: p.urgencia_contacto || nivelToUrgencia[p.nivel_oportunidad] || 'MEDIA',
-              accion_recomendada: calcularAccion({ ...p, estado_comercial: 'Pendiente' })?.accion || null,
-              fecha_ultimo_movimiento: fechaHoy + 'T00:00:00.000Z',
-              tipo_ultimo_movimiento: 'deteccion',
-              sin_contacto: true,
-              sin_decisor: false,
-              pendiente_validacion: (p.nivel_certeza_fase === 'bajo' || p.nivel_certeza_fase === 'medio') && (p.nivel_oportunidad === 'VERY HOT' || p.nivel_oportunidad === 'HOT'),
-              fecha_deteccion: fechaHoy, estado_comercial: 'Pendiente',
-              comercial_asignado: '', es_nueva: true, contactos_linkedin: [], _contactos_cargando: true
-            }));
-          console.log('[FILTRADAS existingIds] existingIds tiene', existingIds.size, 'ids. nuevasZona:', nuevasZona.map(p=>p.id_promocion));
-          console.log('[REALES_ZONA]', realesZona.map(p => p.id_promocion));
-          await saveDB([...realesZona, ...dbActual]);
+
+          const normalizadasZona = nuevasZona.map(p => ({
+            ...p,
+            score_total: p.score_total || null,
+            nivel_oportunidad: ['VERY HOT','HOT','WARM','LOW'].includes(p.nivel_oportunidad) ? p.nivel_oportunidad : null,
+            nivel_certeza_fase: ['alto','medio','bajo'].includes(p.nivel_certeza_fase) ? p.nivel_certeza_fase : null,
+            indicios_clave: p.indicios_clave || null,
+            lujo: p.lujo === 'sí' ? 'sí' : (p.lujo === 'no' ? 'no' : null),
+            urgencia_contacto: p.urgencia_contacto || nivelToUrgencia[p.nivel_oportunidad] || 'MEDIA',
+            accion_recomendada: calcularAccion({ ...p, estado_comercial: 'Pendiente' })?.accion || null,
+            fecha_ultimo_movimiento: fechaHoy + 'T00:00:00.000Z',
+            tipo_ultimo_movimiento: 'deteccion',
+            sin_contacto: true,
+            sin_decisor: false,
+            pendiente_validacion: (p.nivel_certeza_fase === 'bajo' || p.nivel_certeza_fase === 'medio') && (p.nivel_oportunidad === 'VERY HOT' || p.nivel_oportunidad === 'HOT'),
+            fecha_deteccion: fechaHoy,
+            estado_comercial: 'Pendiente',
+            comercial_asignado: '',
+            es_nueva: true,
+            contactos_linkedin: [],
+            _contactos_cargando: true
+          }));
+
+          const dbFusionada = [...dbActual];
+          const realesZona = [];
+          const fusionadasConDb = [];
+
+          normalizadasZona.forEach(function(p) {
+            const matchDb = encontrarPromocionCoincidente(p, dbFusionada);
+            if (matchDb.match) {
+              dbFusionada[matchDb.idx] = fusionarPromociones(dbFusionada[matchDb.idx], p);
+              fusionadasConDb.push(p.id_promocion || p.nombre_promocion || p.promotora || 'promoción');
+            } else {
+              realesZona.push(p);
+              dbFusionada.unshift(p);
+            }
+          });
+
+          console.log('[FUSIONADAS_CON_DB]', fusionadasConDb);
+          console.log('[REALES_ZONA]', realesZona.map(p => p.id_promocion || p.nombre_promocion));
+          await saveDB(dbFusionada);
           todasNuevas = [...todasNuevas, ...realesZona];
           updateBadge();
         }
@@ -4303,7 +4213,6 @@ Si no hay promociones, responde: []`;
         updateStep(stepId, '\u2713', `${zonaActual} - ${nuevasZona.length} encontradas`, 'done');
       } catch(e) {
         updateStep(stepId, '\u26A0', `${zonaActual} - error: ${e.message}`, 'err');
-        huboErrores = true;
       }
 
       await sleep(1000); // pequeña pausa entre zonas
@@ -4323,13 +4232,9 @@ Si no hay promociones, responde: []`;
     }
 
     setAgentStatus('done', 'COMPLETADO');
-    if (huboErrores) {
-      showToast('Búsqueda incompleta: hubo errores y la zona no se ha marcado como completada');
-    } else {
-      await setLastSearch(new Date().toISOString());
-      await saveZonaHistory(zona, 'inventario', todasNuevas.length);
-      showToast(`${todasNuevas.length} nuevas promociones guardadas`);
-    }
+    await setLastSearch(new Date().toISOString());
+    await saveZonaHistory(zona, 'inventario', todasNuevas.length);
+    showToast(`${todasNuevas.length} nuevas promociones guardadas`);
     btn.disabled = false;
     return;
   }
@@ -5730,10 +5635,6 @@ function kimboInit() {
   (async function() {
     try {
       await preloadCloudData();
-    await migrateZonaHistoryIfNeeded();
-    // Clean Madrid zones that were incorrectly marked from a failed search
-    await cleanInvalidZonaHistory(['Madrid capital','Madrid norte','Madrid oeste (Pozuelo, Las Rozas, Majadahonda)','Madrid sur','Madrid este']);
-    await showBillingWarningIfNeeded();
       await loadTokenStats();
       await renderDashboard();
       await updateBadge();
@@ -6697,30 +6598,7 @@ async function migrarScoringExistentes() {
   showToast(sinScoring.length + ' promociones clasificadas con scoring local');
   return sinScoring.length;
 }
-// ── FIN MIGRACIÓN ──────────────────────────────────────────────
-
-// ── LIMPIEZA ZONAS CON BÚSQUEDA FALLIDA ───────────────────────
-async function cleanInvalidZonaHistory(zonasToRemove) {
-  try {
-    delete _cache['zona_history'];
-    const h = await cloudGet('zona_history') || {};
-    let changed = false;
-    zonasToRemove.forEach(function(zona) {
-      if (h[zona]) {
-        delete h[zona];
-        changed = true;
-        console.log('[Kimbo] Eliminada entrada de zona_history para:', zona);
-      }
-    });
-    if (changed) {
-      await cloudSet('zona_history', h);
-      delete _cache['zona_history'];
-    }
-  } catch(e) {
-    console.warn('[Kimbo] Error limpiando zona_history:', e.message);
-  }
-}
-// ── FIN LIMPIEZA ───────────────────────────────────────────────
+// ── FIN MIGRACIÓN ─────────────────────────────────────────────────
 
 // ── SCORING LOCAL (para promociones sin datos de Claude) ──────────
 function calcularScoreLocal(p) {
@@ -7241,12 +7119,6 @@ function renderPanelGenerico(el, data, tipo) {
   window.fusionarPromociones = fusionarPromociones;
   window.aplicarAutomatizaciones = aplicarAutomatizaciones;
   window.setDashQuickFilter = setDashQuickFilter;
-  window.checkBillingErrorGuard = checkBillingErrorGuard;
-  window.clearBillingError = clearBillingError;
-  window.showBillingWarningIfNeeded = showBillingWarningIfNeeded;
-  window.migrateZonaHistoryIfNeeded = migrateZonaHistoryIfNeeded;
-  window.clearBillingError = clearBillingError;
-  window.showBillingWarningIfNeeded = showBillingWarningIfNeeded;
   window.getPerfilesPrioritarios = getPerfilesPrioritarios;
   window.renderActivityLog = renderActivityLog;
   window.runPartners = runPartners;
@@ -7271,6 +7143,7 @@ if (document.readyState === 'loading') {
 } else {
   kimboInit();
 }
+
 </script>
 </body>
 </html>
