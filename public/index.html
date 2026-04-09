@@ -1454,7 +1454,7 @@ select.form-control optgroup {
           <div class="form-row">
             <div class="form-group">
               <label class="form-label">Zona</label>
-              
+              <select class="form-control" id="s-zona" onchange="renderZonaStatus()">
                 <optgroup label="Málaga y Costa del Sol">
                   <option>Costa del Sol (completa)</option>
                   <option>Marbella</option>
@@ -1503,7 +1503,7 @@ select.form-control optgroup {
                   <option>Mallorca</option>
                   <option>Ibiza</option>
                 </optgroup>
-              
+              </select>
             </div>
             <div class="form-group" id="periodo-group">
               <label class="form-label">Período</label>
@@ -1693,42 +1693,85 @@ select.form-control optgroup {
             <div>
               <label style="font-size:11px;font-weight:600;color:var(--text3);letter-spacing:1px;text-transform:uppercase;display:block;margin-bottom:6px">ZONA</label>
               <select class="form-control" id="m-zona" style="width:100%;font-size:13px;padding:9px 12px">
-                <option disabled style="color:var(--text3);font-weight:700">── COSTA DEL SOL ──</option>
+                <option disabled style="color:var(--text3);font-weight:700">── MÁLAGA Y COSTA DEL SOL ──</option>
                 <option>Costa del Sol (completa)</option>
                 <option>Marbella</option>
                 <option>Estepona</option>
+                <option>Benahavís</option>
                 <option>Mijas Costa</option>
-                <option>Benalmádena</option>
                 <option>Fuengirola</option>
                 <option>Torremolinos</option>
+                <option>Benalmádena</option>
                 <option>Manilva</option>
                 <option>Casares</option>
-                <option>Benahavís</option>
-                <option disabled style="color:var(--text3);font-weight:700">── MÁLAGA PROVINCIA ──</option>
                 <option>Málaga capital</option>
                 <option>Nerja y Axarquía</option>
                 <option>Alhaurín y área metropolitana</option>
                 <option>Ronda</option>
-                <option disabled style="color:var(--text3);font-weight:700">── ANDALUCÍA ──</option>
+                <option disabled style="color:var(--text3);font-weight:700">── SEVILLA ──</option>
                 <option>Sevilla capital</option>
                 <option>Sevilla área metropolitana</option>
-                <option>Granada capital</option>
-                <option>Córdoba capital</option>
+                <option>Sevilla Este</option>
+                <option>Los Remedios</option>
+                <option>Triana</option>
+                <option>Aljarafe</option>
+                <option>Tomares</option>
+                <option>Castilleja</option>
+                <option>Dos Hermanas</option>
+                <option>Montequinto</option>
+                <option disabled style="color:var(--text3);font-weight:700">── CÁDIZ ──</option>
                 <option>Cádiz y Jerez</option>
-                <option>Almería capital</option>
-                <option>Huelva capital</option>
-                <option>Jaén capital</option>
+                <option>El Puerto de Santa María</option>
+                <option>Sotogrande y Campo de Gibraltar</option>
+                <option>Chiclana</option>
+                <option>Tarifa</option>
                 <option disabled style="color:var(--text3);font-weight:700">── MADRID ──</option>
                 <option>Madrid capital</option>
+                <option>Madrid lujo</option>
                 <option>Madrid norte</option>
-                <option>Madrid oeste (Pozuelo, Las Rozas, Majadahonda)</option>
+                <option>Madrid oeste</option>
+                <option>Pozuelo</option>
+                <option>Boadilla del Monte</option>
+                <option>Las Rozas</option>
+                <option>Majadahonda</option>
+                <option>Torrelodones</option>
                 <option>Madrid sur</option>
                 <option>Madrid este</option>
-                <option disabled style="color:var(--text3);font-weight:700">── OTRAS ──</option>
+                <option disabled style="color:var(--text3);font-weight:700">── BARCELONA ──</option>
                 <option>Barcelona y área metropolitana</option>
+                <option>Eixample</option>
+                <option>Sarrià</option>
+                <option>Pedralbes</option>
+                <option>Sant Cugat</option>
+                <option>Maresme</option>
+                <option disabled style="color:var(--text3);font-weight:700">── VALENCIA ──</option>
                 <option>Valencia capital</option>
+                <option>Campolivar</option>
+                <option>Godella</option>
+                <option>Rocafort</option>
+                <option>La Cañada</option>
+                <option>Alboraya</option>
+                <option disabled style="color:var(--text3);font-weight:700">── TARRAGONA ──</option>
+                <option>Tarragona y Costa Daurada</option>
+                <option>Salou</option>
+                <option>Cambrils</option>
+                <option>Reus</option>
+                <option disabled style="color:var(--text3);font-weight:700">── GERONA ──</option>
+                <option>Gerona y Costa Brava</option>
+                <option>Begur</option>
+                <option>Platja d'Aro</option>
+                <option>Palamós</option>
+                <option>Cadaqués</option>
+                <option disabled style="color:var(--text3);font-weight:700">── BALEARES ──</option>
                 <option>Mallorca</option>
+                <option>Palma</option>
+                <option>Calvià</option>
+                <option>Andratx</option>
+                <option>Son Vida</option>
                 <option>Ibiza</option>
+                <option>Santa Eulalia</option>
+                <option>Sant Josep</option>
+                <option>San Antonio</option>
               </select>
             </div>
             <div style="display:none">
@@ -1821,35 +1864,83 @@ select.form-control optgroup {
           <div style="margin-bottom:16px">
             <label style="font-size:11px;font-weight:600;color:var(--text3);letter-spacing:1px;text-transform:uppercase;display:block;margin-bottom:6px">ZONA</label>
             <select class="form-control" id="pt-zona" style="width:100%;font-size:13px;padding:9px 12px">
-              <option disabled style="color:var(--text3);font-weight:700">── COSTA DEL SOL ──</option>
+              <option disabled style="color:var(--text3);font-weight:700">── MÁLAGA Y COSTA DEL SOL ──</option>
               <option>Costa del Sol (completa)</option>
               <option>Marbella</option>
               <option>Estepona</option>
+              <option>Benahavís</option>
               <option>Mijas Costa</option>
-              <option>Benalmádena</option>
               <option>Fuengirola</option>
               <option>Torremolinos</option>
+              <option>Benalmádena</option>
               <option>Manilva</option>
               <option>Casares</option>
-              <option>Benahavís</option>
-              <option disabled style="color:var(--text3);font-weight:700">── MÁLAGA PROVINCIA ──</option>
               <option>Málaga capital</option>
               <option>Nerja y Axarquía</option>
               <option>Alhaurín y área metropolitana</option>
               <option>Ronda</option>
-              <option disabled style="color:var(--text3);font-weight:700">── ANDALUCÍA ──</option>
+              <option disabled style="color:var(--text3);font-weight:700">── SEVILLA ──</option>
               <option>Sevilla capital</option>
               <option>Sevilla área metropolitana</option>
-              <option>Granada capital</option>
-              <option>Córdoba capital</option>
+              <option>Sevilla Este</option>
+              <option>Los Remedios</option>
+              <option>Triana</option>
+              <option>Aljarafe</option>
+              <option>Tomares</option>
+              <option>Castilleja</option>
+              <option>Dos Hermanas</option>
+              <option>Montequinto</option>
+              <option disabled style="color:var(--text3);font-weight:700">── CÁDIZ ──</option>
+              <option>Cádiz y Jerez</option>
+              <option>El Puerto de Santa María</option>
+              <option>Sotogrande y Campo de Gibraltar</option>
+              <option>Chiclana</option>
+              <option>Tarifa</option>
               <option disabled style="color:var(--text3);font-weight:700">── MADRID ──</option>
               <option>Madrid capital</option>
+              <option>Madrid lujo</option>
               <option>Madrid norte</option>
-              <option>Madrid oeste (Pozuelo, Las Rozas, Majadahonda)</option>
-              <option disabled style="color:var(--text3);font-weight:700">── OTRAS ──</option>
+              <option>Madrid oeste</option>
+              <option>Pozuelo</option>
+              <option>Boadilla del Monte</option>
+              <option>Las Rozas</option>
+              <option>Majadahonda</option>
+              <option>Torrelodones</option>
+              <option disabled style="color:var(--text3);font-weight:700">── BARCELONA ──</option>
               <option>Barcelona y área metropolitana</option>
+              <option>Eixample</option>
+              <option>Sarrià</option>
+              <option>Pedralbes</option>
+              <option>Sant Cugat</option>
+              <option>Maresme</option>
+              <option disabled style="color:var(--text3);font-weight:700">── VALENCIA ──</option>
+              <option>Valencia capital</option>
+              <option>Campolivar</option>
+              <option>Godella</option>
+              <option>Rocafort</option>
+              <option>La Cañada</option>
+              <option>Alboraya</option>
+              <option disabled style="color:var(--text3);font-weight:700">── TARRAGONA ──</option>
+              <option>Tarragona y Costa Daurada</option>
+              <option>Salou</option>
+              <option>Cambrils</option>
+              <option>Reus</option>
+              <option disabled style="color:var(--text3);font-weight:700">── GERONA ──</option>
+              <option>Gerona y Costa Brava</option>
+              <option>Begur</option>
+              <option>Platja d'Aro</option>
+              <option>Palamós</option>
+              <option>Cadaqués</option>
+              <option disabled style="color:var(--text3);font-weight:700">── BALEARES ──</option>
               <option>Mallorca</option>
+              <option>Palma</option>
+              <option>Calvià</option>
+              <option>Andratx</option>
+              <option>Son Vida</option>
               <option>Ibiza</option>
+              <option>Santa Eulalia</option>
+              <option>Sant Josep</option>
+              <option>San Antonio</option>
             </select>
           </div>
           <button id="partnersBtn" class="btn btn-primary" style="width:100%;padding:12px">
