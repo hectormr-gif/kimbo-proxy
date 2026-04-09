@@ -1454,52 +1454,56 @@ select.form-control optgroup {
           <div class="form-row">
             <div class="form-group">
               <label class="form-label">Zona</label>
-              <select class="form-control" id="s-zona" onchange="renderZonaStatus()">
-                <optgroup label="Costa del Sol">
+              
+                <optgroup label="Málaga y Costa del Sol">
                   <option>Costa del Sol (completa)</option>
                   <option>Marbella</option>
                   <option>Estepona</option>
+                  <option>Benahavís</option>
                   <option>Mijas Costa</option>
-                  <option>Benalmádena</option>
                   <option>Fuengirola</option>
                   <option>Torremolinos</option>
+                  <option>Benalmádena</option>
                   <option>Manilva</option>
                   <option>Casares</option>
-                  <option>Benahavís</option>
-                </optgroup>
-                <optgroup label="Málaga provincia">
                   <option>Málaga capital</option>
                   <option>Nerja y Axarquía</option>
                   <option>Alhaurín y área metropolitana</option>
                   <option>Ronda</option>
                 </optgroup>
-                <optgroup label="Andalucía">
+                <optgroup label="Sevilla">
                   <option>Sevilla capital</option>
                   <option>Sevilla área metropolitana</option>
-                  <option>Granada capital</option>
-                  <option>Córdoba capital</option>
+                </optgroup>
+                <optgroup label="Cádiz">
                   <option>Cádiz y Jerez</option>
-                  <option>Almería capital</option>
-                  <option>Huelva capital</option>
-                  <option>Jaén capital</option>
+                  <option>Sotogrande y Campo de Gibraltar</option>
                 </optgroup>
                 <optgroup label="Madrid">
                   <option>Madrid capital</option>
-                  <option>Madrid norte (Alcobendas, San Sebastián de los Reyes)</option>
-                  <option>Madrid oeste (Las Rozas, Pozuelo, Majadahonda)</option>
-                  <option>Madrid sur (Getafe, Leganés, Fuenlabrada)</option>
-                  <option>Madrid este (Alcalá de Henares, Torrejón)</option>
-                  <option>La Moraleja y Sotogrande Madrid</option>
+                  <option>Madrid norte</option>
+                  <option>Madrid oeste</option>
+                  <option>Madrid lujo</option>
+                  <option>Madrid sur</option>
+                  <option>Madrid este</option>
                 </optgroup>
-                <optgroup label="Otras ciudades">
+                <optgroup label="Barcelona">
                   <option>Barcelona y área metropolitana</option>
+                </optgroup>
+                <optgroup label="Valencia">
                   <option>Valencia capital</option>
-                  <option>Bilbao y País Vasco</option>
-                  <option>Alicante y Costa Blanca</option>
+                </optgroup>
+                <optgroup label="Tarragona">
+                  <option>Tarragona y Costa Daurada</option>
+                </optgroup>
+                <optgroup label="Gerona">
+                  <option>Gerona y Costa Brava</option>
+                </optgroup>
+                <optgroup label="Baleares">
                   <option>Mallorca</option>
                   <option>Ibiza</option>
                 </optgroup>
-              </select>
+              
             </div>
             <div class="form-group" id="periodo-group">
               <label class="form-label">Período</label>
@@ -2118,18 +2122,22 @@ const ZONA_HISTORY_KEY = 'kimbo_zona_history';
 const SEARCH_LOG_KEY = 'kimbo_search_log';
 
 const ALL_ZONES = [
-  { group: 'Costa del Sol', zones: ['Costa del Sol (completa)', 'Marbella', 'Estepona', 'Mijas Costa', 'Benalmádena', 'Fuengirola', 'Torremolinos', 'Manilva', 'Casares', 'Benahavís'] },
-  { group: 'Málaga provincia', zones: ['Málaga capital', 'Nerja y Axarquía', 'Alhaurín y área metropolitana', 'Ronda'] },
-  { group: 'Andalucía', zones: ['Sevilla capital', 'Sevilla área metropolitana', 'Granada capital', 'Córdoba capital', 'Cádiz y Jerez', 'Almería capital', 'Huelva capital', 'Jaén capital'] },
-  { group: 'Madrid', zones: ['Madrid capital', 'Madrid norte', 'Madrid oeste (Pozuelo, Las Rozas, Majadahonda)', 'Madrid sur', 'Madrid este'] },
-  { group: 'Otras', zones: ['Barcelona y área metropolitana', 'Valencia capital', 'Mallorca', 'Ibiza'] },
+  { group: 'Málaga', zones: ['Costa del Sol (completa)', 'Marbella', 'Estepona', 'Benahavís', 'Mijas Costa', 'Fuengirola', 'Torremolinos', 'Benalmádena', 'Manilva', 'Casares', 'Málaga capital', 'Nerja y Axarquía', 'Alhaurín y área metropolitana', 'Ronda'] },
+  { group: 'Sevilla', zones: ['Sevilla capital', 'Sevilla área metropolitana'] },
+  { group: 'Cádiz', zones: ['Cádiz y Jerez', 'Sotogrande y Campo de Gibraltar'] },
+  { group: 'Madrid', zones: ['Madrid capital', 'Madrid norte', 'Madrid oeste', 'Madrid lujo', 'Madrid sur', 'Madrid este'] },
+  { group: 'Barcelona', zones: ['Barcelona y área metropolitana'] },
+  { group: 'Valencia', zones: ['Valencia capital'] },
+  { group: 'Tarragona', zones: ['Tarragona y Costa Daurada'] },
+  { group: 'Gerona', zones: ['Gerona y Costa Brava'] },
+  { group: 'Baleares', zones: ['Mallorca', 'Ibiza'] },
 ];
 
 const ALL_ZONES_FLAT = ALL_ZONES.flatMap(g => g.zones);
 
 const PARENT_ZONES = {
-  'Costa del Sol (completa)': ['Marbella', 'Estepona', 'Mijas Costa', 'Benalmádena', 'Fuengirola', 'Torremolinos', 'Manilva', 'Casares', 'Benahavís'],
-  'Madrid capital': ['Madrid norte', 'Madrid oeste (Pozuelo, Las Rozas, Majadahonda)', 'Madrid sur', 'Madrid este'],
+  'Costa del Sol (completa)': ['Marbella', 'Estepona', 'Benahavís', 'Mijas Costa', 'Fuengirola', 'Torremolinos', 'Benalmádena', 'Manilva', 'Casares'],
+  'Madrid capital': ['Madrid norte', 'Madrid oeste', 'Madrid lujo', 'Madrid sur', 'Madrid este'],
   'Sevilla capital': ['Sevilla área metropolitana'],
 };
 
@@ -4005,26 +4013,33 @@ REDES SOCIALES Y SEÑALES TEMPRANAS:
   // Para inventario completo, buscar zona a zona
   
   if (currentMode === 'inventario') {
-    const zonasInventario = zona === 'Costa del Sol (completa)' ? [
-      'Marbella y Benahavís',
-      'Estepona y Manilva',
-      'Mijas y Fuengirola',
-      'Benalmádena y Torremolinos',
-      'Málaga capital',
-      'Nerja, Vélez-Málaga y Axarquía',
-      'Alhaurín, Coín y interior Málaga'
-    ] : zona === 'Madrid capital' ? [
-      'Madrid capital centro y Salamanca',
-      'Madrid capital norte (Hortaleza, Fuencarral)',
-      'Madrid capital oeste (Moncloa, Latina, Carabanchel)',
-      'Madrid capital sur (Vallecas, Usera, Villaverde)',
-      'Madrid capital este (Ciudad Lineal, San Blas)'
-    ] : zona === 'Sevilla capital' ? [
-      'Sevilla capital centro y Triana',
-      'Sevilla capital norte y Macarena',
-      'Sevilla capital este y Los Remedios',
-      'Sevilla capital sur y Bellavista'
-    ] : [zona];
+    const ZONAS_PRO = {
+      'Costa del Sol (completa)': ['Marbella','Estepona','Benahavís','Mijas Costa','Fuengirola','Torremolinos','Benalmádena','Manilva','Casares','Málaga capital','Nerja y Axarquía','Alhaurín y área metropolitana','Ronda'],
+      'Marbella': ['Marbella','Golden Mile Marbella','Sierra Blanca','Los Monteros'],
+      'Estepona': ['Estepona','Cancelada','New Golden Mile Estepona'],
+      'Benahavís': ['Benahavís','La Zagaleta','Los Flamingos'],
+      'Sevilla capital': ['Sevilla capital centro','Los Remedios','Triana','Sevilla Este','Bellavista'],
+      'Sevilla área metropolitana': ['Tomares','Castilleja','Dos Hermanas','Montequinto','Aljarafe'],
+      'Cádiz y Jerez': ['Cádiz','Jerez','El Puerto de Santa María','Chiclana'],
+      'Sotogrande y Campo de Gibraltar': ['Sotogrande','San Roque','Tarifa'],
+      'Madrid capital': ['Salamanca','Recoletos','Castellana','Chamartín','Hortaleza','Fuencarral','Moncloa','Ciudad Lineal','San Blas'],
+      'Madrid norte': ['Alcobendas','San Sebastián de los Reyes','La Moraleja'],
+      'Madrid oeste': ['Pozuelo','Aravaca','Boadilla del Monte','Majadahonda','Las Rozas','Torrelodones','Villanueva de la Cañada','Villanueva del Pardillo'],
+      'Madrid lujo': ['La Moraleja','El Soto de la Moraleja','El Viso','Salamanca','Recoletos','Castellana','Chamartín'],
+      'Madrid sur': ['Getafe','Leganés','Fuenlabrada','Alcorcón','Móstoles'],
+      'Madrid este': ['Valdebebas','Ciudad Lineal','San Blas','Alcalá de Henares','Torrejón'],
+      'Barcelona y área metropolitana': ['Barcelona','Eixample','Sarrià','Pedralbes','Sant Cugat','Badalona','Maresme'],
+      'Valencia capital': ['Valencia','Campolivar','Godella','Rocafort','La Cañada','Alboraya'],
+      'Tarragona y Costa Daurada': ['Tarragona','Salou','Cambrils','Reus'],
+      'Gerona y Costa Brava': ['Girona','Cadaqués','Begur','Platja d\'Aro','Palamós'],
+      'Mallorca': ['Palma','Calvià','Andratx','Santa Ponsa','Son Vida'],
+      'Ibiza': ['Ibiza','Santa Eulalia','Sant Josep','San Antonio']
+    };
+
+    const PREMIUM_TERMS = ['Marbella','Benahavís','Golden Mile','Sierra Blanca','La Zagaleta','Ibiza','Mallorca','Pozuelo','Boadilla','La Moraleja','Salamanca','Chamartín','Son Vida'];
+    const PORTAL_DOMAINS = ['idealista.com','fotocasa.es','pisos.com','habitaclia.com','kyero.com'];
+
+    const zonasInventario = ZONAS_PRO[zona] || [zona];
 
     let todasNuevas = [];
     let huboErrores = false;
@@ -4035,70 +4050,111 @@ REDES SOCIALES Y SEÑALES TEMPRANAS:
       return await res.json();
     };
 
+    const esZonaPremium = (zonaActual) => PREMIUM_TERMS.some(t => zonaActual.includes(t));
+
+    const generarQueriesSeguras = (zonaActual, premium = false, modo = 'inventario') => {
+      const qs = [
+        `obra nueva ${zonaActual}`,
+        `promoción ${zonaActual}`,
+        `promoción obra nueva ${zonaActual}`,
+        `residencial ${zonaActual}`,
+        `nueva promoción ${zonaActual}`,
+        `urbanización ${zonaActual}`,
+        `promotora ${zonaActual} obra nueva`
+      ];
+      if (premium) {
+        qs.push(`promoción villas ${zonaActual}`);
+        qs.push(`chalets obra nueva ${zonaActual}`);
+        qs.push(`residencial exclusivo ${zonaActual}`);
+      }
+      if (modo === 'actualizacion') {
+        qs.push(`nueva promoción ${zonaActual} 2026`);
+        qs.push(`lanzamiento promoción ${zonaActual}`);
+        qs.push(`obra nueva ${zonaActual} fase`);
+      }
+      return qs;
+    };
+
     const getBlockQueries = (zonaActual) => {
-      const z = zonaActual;
+      const premium = esZonaPremium(zonaActual);
       return {
         tempranas: [
-          `licencia obra nueva ${z}`,
-          `promoción residencial ${z} licencia`,
-          `suelo adquirido promoción ${z}`
+          `licencia obra nueva ${zonaActual}`,
+          `promoción residencial ${zonaActual} licencia`,
+          `suelo adquirido promoción ${zonaActual}`
         ],
         portales: [
-          `site:idealista.com/venta-obranueva ${z}`,
-          `site:fotocasa.es/obra-nueva ${z}`,
-          `site:pisos.com obra nueva ${z}`
+          ...generarQueriesSeguras(zonaActual, premium).map(q => `site:idealista.com ${q}`),
+          ...generarQueriesSeguras(zonaActual, premium).map(q => `site:fotocasa.es ${q}`),
+          ...generarQueriesSeguras(zonaActual, premium).slice(0, 4).map(q => `site:pisos.com ${q}`)
         ],
         promotoras: [
-          `promotora obra nueva ${z}`,
-          `site:aedashomes.com ${z} obra nueva`,
-          `site:culmia.com OR site:neinorhomes.com OR site:metrovacesa.com ${z}`
+          `promotora ${zonaActual} obra nueva`,
+          `site:aedashomes.com ${zonaActual}`,
+          `site:neinorhomes.com ${zonaActual}`,
+          `site:culmia.com ${zonaActual}`,
+          `site:metrovacesa.com ${zonaActual}`,
+          `site:kronoshomes.com ${zonaActual}`,
+          `site:habitatinmobiliaria.com ${zonaActual}`,
+          `site:aqacentor.com ${zonaActual}`
         ],
         noticias: [
-          `promoción viviendas ${z}`,
-          `site:brainsre.news OR site:idealista.com/news ${z} promoción`,
-          `obra nueva ${z} promotora`
+          `promoción ${zonaActual}`,
+          `obra nueva ${zonaActual} promotora`,
+          `site:brainsre.news ${zonaActual} promoción`,
+          `site:idealista.com/news ${zonaActual} promoción`
         ]
       };
     };
 
+    const esPromocionValida = (r) => {
+      if (!r || !r.link) return false;
+      const txt = `${r.title || ''} ${r.snippet || ''}`.toLowerCase();
+      let hostname = '';
+      try { hostname = new URL(r.link).hostname.replace(/^www\./, ''); } catch(_) {}
+
+      const señalesPromocion = [
+        'obra nueva','promoción','promocion','residencial','urbanización','urbanizacion','conjunto','edificio'
+      ].some(t => txt.includes(t));
+
+      const señalesUnidad = [
+        'piso en venta','casa en venta','chalet en venta','villa en venta','alquiler','1 vivienda','una vivienda'
+      ].some(t => txt.includes(t));
+
+      const ruidoClaro = [
+        'precio vivienda','hipoteca','mercado inmobiliario','tasación','tasacion'
+      ].some(t => txt.includes(t));
+
+      const portalValido = PORTAL_DOMAINS.some(d => hostname.endsWith(d));
+      const promotoraValida = /(aedas|neinor|culmia|metrovacesa|kronos|habitat|aqacentor|gestilar|insur|lar)/.test(hostname + ' ' + txt);
+      const tieneZona = zonaActual => zonaActual.toLowerCase().split(/[(),\/\-]/).map(s => s.trim()).filter(Boolean).some(zp => zp.length > 3 && txt.includes(zp.toLowerCase()));
+      return !señalesUnidad && !ruidoClaro && ((señalesPromocion && tieneZona(r.__zonaActual || '')) || portalValido || promotoraValida);
+    };
+
     const filterSearchResults = (results, zonaActual) => {
       const seen = new Set();
-      const excludedDomains = ['wikipedia.org','idealista.com/news','elmundo.es','elpais.com','expansion.com','eleconomista.es','x.com','twitter.com','facebook.com','instagram.com','youtube.com'];
-      const excludedTerms = ['precio de la vivienda','hipoteca','mercado inmobiliario','análisis','analisis','tendencias','opinión','opinion','inversión','inversion'];
-      const requiredTerms = ['obra nueva','promoción','promocion','residencial','viviendas','vivienda','chalets','pisos','apartamentos','adosados','bajos'];
-      const promoTerms = ['desde','entrega','dormitorios','unidades','villas','ático','atico','pisos en venta','obra nueva en'];
-      const zoneParts = zonaActual.toLowerCase().split(/[(),\/\-]/).map(s => s.trim()).filter(s => s && s.length > 3);
-
+      const excludedDomains = ['wikipedia.org','x.com','twitter.com','facebook.com','instagram.com','youtube.com'];
       return (results || []).filter(r => {
         if (!r || !r.link) return false;
+        r.__zonaActual = zonaActual;
         let normalizedLink = r.link.replace(/#.*$/, '').replace(/[?&](utm_[^=&]+|gad_source|gclid|gbraid|wbraid)=[^&]*/g, '');
         if (seen.has(normalizedLink)) return false;
         seen.add(normalizedLink);
-
-        const txt = `${r.title || ''} ${r.snippet || ''}`.toLowerCase();
         let hostname = '';
         try { hostname = new URL(r.link).hostname.replace(/^www\./, ''); } catch(_) {}
-
         if (excludedDomains.some(d => hostname.endsWith(d))) return false;
-        if (excludedTerms.some(t => txt.includes(t))) return false;
-
-        const hasHousing = requiredTerms.some(t => txt.includes(t));
-        const hasPromoSignal = promoTerms.some(t => txt.includes(t));
-        const hasZone = zoneParts.some(p => txt.includes(p)) || txt.includes('madrid');
-        const hasDomainIntent = /(idealista|fotocasa|pisos\.com|habitaclia|obra-nueva|aedas|culmia|metrovacesa|neinor|gestilar|realia|lifestyle|residencial)/.test(hostname + ' ' + txt);
-
-        return hasZone && ((hasHousing && hasPromoSignal) || (hasHousing && hasDomainIntent));
-      }).slice(0, 12);
+        return esPromocionValida(r);
+      });
     };
 
     const parsePromotionsFromSearch = async (zonaActual, blockName, results) => {
       if (!results.length) return [];
-      const compact = results.map((r, i) => `${i+1}. ${r.title}\nURL: ${r.link}\nSnippet: ${r.snippet || ''}`).join('\n\n');
+      const compact = results.map((r, i) => `${i+1}. ${r.title}\nURL: ${r.link}\nSnippet: ${r.snippet || ''}`).join('\\n\\n');
       const prompt = `Eres un analista que extrae promociones inmobiliarias residenciales a partir de resultados de búsqueda ya capturados.
 Devuelve SOLO un array JSON válido. No expliques nada.
 Zona objetivo: ${zonaActual}. ${tipoFiltro}
 Si varias entradas hablan del mismo desarrollo, consolídalas en una sola promoción.
-Solo incluye promociones residenciales de obra nueva o desarrollos claros. Excluye listados genéricos, directorios y páginas de categoría sin promoción concreta salvo que revelen claramente un proyecto identificable.
+Solo incluye promociones inmobiliarias reales de obra nueva. NO incluyas viviendas individuales. Cada resultado debe ser una promoción o proyecto residencial con múltiples viviendas.
 
 Formato exacto de salida:
 [{
@@ -4137,7 +4193,6 @@ ${compact}`;
       const parsed = parseJSON(txt);
       return Array.isArray(parsed) ? parsed : [];
     };
-
     for (let i = 0; i < zonasInventario.length; i++) {
       const zonaActual = zonasInventario[i];
       const stepId = `zona_${i}`;
@@ -4227,7 +4282,6 @@ ${compact}`;
             _contactos_cargando: true
           }));
           const nuevasConScoring = aplicarScoringLocal(realesZona);
-
           await saveDB([...nuevasConScoring, ...dbActual]);
           todasNuevas = [...todasNuevas, ...nuevasConScoring];
           updateBadge();
@@ -4236,15 +4290,6 @@ ${compact}`;
         }
 
         updateStep(stepId, '\u2713', `${zonaActual} - ${realesZona.length} nuevas`, 'done');
-        if (todasNuevas.length > 0) {
-        await saveZonaHistory(zonaActual, 'inventario', todasNuevas.length);
-        await addSearchLog(zonaActual, 'inventario', todasNuevas.length);
-        delete _cache['zona_history'];
-
-        if (typeof renderZonaStatus === 'function') await renderZonaStatus();
-        if (typeof renderResumenSemanal === 'function') await renderResumenSemanal();
-      }
-        
       } catch(e) {
         console.error('[ERROR ZONA]', zonaActual, e);
         updateStep(stepId, '\u26A0', `${zonaActual} - error: ${e.message}`, 'err');
@@ -6529,18 +6574,10 @@ function encontrarPromocionCoincidente(nueva, existentes) {
 }
 
 function generarIdPromocion(p) {
-  const base = (
-    (p.nombre_promocion || '') +
-    (p.promotora || '') +
-    (p.municipio || '')
-  ).toLowerCase();
-
-  return base
-    .replace(/\s+/g, '-')
-    .replace(/[^a-z0-9\-]/g, '')
-    .slice(0, 50);
+  const base = ((p.nombre_promocion || '') + '-' + (p.promotora || '') + '-' + (p.municipio || '')).toLowerCase();
+  return base.replace(/\s+/g, '-').replace(/[^a-z0-9\-]/g, '').replace(/-+/g, '-').replace(/^-|-$/g, '').slice(0, 64) || ('promo-' + Date.now());
 }
-  
+
 // Fusiona dos registros: base es el existente, nueva es la recién detectada
 // Regla: enriquecer campos vacíos + priorizar fuentes más fiables
 function fusionarPromociones(base, nueva) {
