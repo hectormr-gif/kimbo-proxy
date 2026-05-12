@@ -3079,8 +3079,16 @@ async function repartirPromocionesAleatorio(provincia, comercialesSeleccionados)
   
   // Get unassigned promos in this province, sorted by score desc
   let sinAsignar = db.filter(function(p) {
-    const enProvincia = provZonas.some(function(z) { return (p.municipio||'').includes(z.split(' ')[0]); }) || provZonas.includes(p.municipio);
-    return !p.comercial_asignado && enProvincia && p.estado_comercial !== 'Ganado' && p.estado_comercial !== 'Descartado';
+    if (p.comercial_asignado || p.estado_comercial === 'Ganado' || p.estado_comercial === 'Descartado') return false;
+    if (provincia === '__todas__') return true;
+    const muni = (p.municipio || '').toLowerCase();
+    // Match by: exact zone name, first word of zone, or province name itself
+    const enProvincia = provZonas.some(function(z) {
+      return muni === z.toLowerCase() ||
+             muni.includes(z.split(' ')[0].toLowerCase()) ||
+             z.toLowerCase().includes(muni);
+    }) || muni.includes(provincia.toLowerCase()) || provincia.toLowerCase().includes(muni);
+    return enProvincia;
   });
   
   const urgOrder = { 'VERY HOT': 4, 'HOT': 3, 'WARM': 2, 'LOW': 1, 'ALTA': 4, 'MEDIA': 3, 'BAJA': 1 };
@@ -5872,11 +5880,14 @@ async function restoreDB(event) {
     if (!backup.version || !backup.promociones) { showToast('Archivo no valido'); return; }
     await saveDB(backup.promociones || []);
     await saveMercadoDB(backup.mercado || []);
+    if (backup.agencias) await saveAgencias(backup.agencias);
+    if (backup.partners) await savePartners(backup.partners);
     await saveTeam(backup.team || []);
     if (backup.zona_history) await cloudSet('zona_history', backup.zona_history);
     if (backup.zona_history_mercado) await cloudSet('zona_history_mercado', backup.zona_history_mercado);
+    if (backup.zona_history_partners) await cloudSet('zona_history_partners', backup.zona_history_partners);
     if (backup.custom_sources) await cloudSet('custom_sources', backup.custom_sources);
-    showToast('Restaurado: ' + (backup.promociones?.length || 0) + ' promociones + ' + (backup.mercado?.length || 0) + ' viviendas');
+    showToast('Restaurado: ' + (backup.promociones?.length || 0) + ' promociones, ' + (backup.agencias?.length || 0) + ' agencias, ' + (backup.partners?.length || 0) + ' prescriptores');
     await renderDashboard();
     renderSettings();
     renderCustomSources('promo');
