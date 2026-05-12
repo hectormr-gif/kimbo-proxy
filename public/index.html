@@ -1606,6 +1606,9 @@ select.form-control optgroup {
               <option value="sí">💎 Lujo</option>
               <option value="no">No lujo</option>
             </select>
+            <button class="btn btn-ghost" style="font-size:12px;padding:6px 14px;white-space:nowrap" onclick="showRepartoModal('promociones')">
+              🎲 Repartir
+            </button>
             <select class="form-control" id="promo-sort" data-promo-filter="1" style="flex:1;min-width:130px;max-width:170px;font-size:12px;padding:7px 10px">
               <option value="score">⬇ Score</option>
               <option value="urgencia">⬇ Urgencia</option>
@@ -1826,6 +1829,9 @@ select.form-control optgroup {
           <select class="form-control" id="vf-comercial" data-ag-filter="1" style="flex:1;min-width:120px;max-width:160px;font-size:12px;padding:7px 10px">
             <option value="">Todos los comerciales</option>
           </select>
+          <button class="btn btn-ghost" style="font-size:12px;padding:6px 14px;white-space:nowrap" onclick="showRepartoModal('agencias')">
+            🎲 Repartir
+          </button>
           <select class="form-control" id="ag-sort" data-ag-filter="1" style="flex:1;min-width:130px;max-width:170px;font-size:12px;padding:7px 10px">
             <option value="estrellas">⬇ Estrellas</option>
             <option value="fecha">⬇ Más recientes</option>
@@ -1992,6 +1998,9 @@ select.form-control optgroup {
           <select class="form-control" id="ptf-comercial" data-pt-filter="1" style="flex:1;min-width:120px;max-width:160px;font-size:12px;padding:7px 10px">
             <option value="">Todos los comerciales</option>
           </select>
+          <button class="btn btn-ghost" style="font-size:12px;padding:6px 14px;white-space:nowrap" onclick="showRepartoModal('prescriptores')">
+            🎲 Repartir
+          </button>
           <select class="form-control" id="pt-sort" data-pt-filter="1" style="flex:1;min-width:130px;max-width:170px;font-size:12px;padding:7px 10px">
             <option value="estrellas">⬇ Estrellas</option>
             <option value="fecha">⬇ Más recientes</option>
@@ -2207,7 +2216,6 @@ select.form-control optgroup {
 <div class="toast" id="toast"></div>
 
 <script>
-
 const DB_KEY = 'kimbo_promociones';
 const ZONA_HISTORY_KEY = 'kimbo_zona_history';
 const SEARCH_LOG_KEY = 'kimbo_search_log';
@@ -2225,6 +2233,17 @@ const ALL_ZONES = [
 ];
 
 const ALL_ZONES_FLAT = ALL_ZONES.flatMap(g => g.zones);
+
+// Provincia → zonas mapping (derived from ALL_ZONES groups)
+const PROVINCIAS = ALL_ZONES.map(function(g) { return { name: g.group, zones: g.zones }; });
+function getZonasByProvincia(prov) {
+  const p = PROVINCIAS.find(function(p) { return p.name === prov; });
+  return p ? p.zones : [];
+}
+function getProvinciaByZona(zona) {
+  const p = PROVINCIAS.find(function(p) { return p.zones.includes(zona); });
+  return p ? p.name : null;
+}
 
 const PARENT_ZONES = {
   'Costa del Sol (completa)': ['Marbella', 'Estepona', 'Benahavís', 'Mijas Costa', 'Fuengirola', 'Torremolinos', 'Benalmádena', 'Manilva', 'Casares'],
@@ -3052,6 +3071,136 @@ async function showBillingWarningIfNeeded() {
 }
 // ── FIN BILLING GUARD ──────────────────────────────────────────
 
+
+// ── REPARTO ALEATORIO EQUILIBRADO ────────────────────────────────
+async function repartirPromocionesAleatorio(provincia, comercialesSeleccionados) {
+  const db = await getDB();
+  const provZonas = provincia === '__todas__' ? ALL_ZONES_FLAT : getZonasByProvincia(provincia);
+  
+  // Get unassigned promos in this province, sorted by score desc
+  let sinAsignar = db.filter(function(p) {
+    const enProvincia = provZonas.some(function(z) { return (p.municipio||'').includes(z.split(' ')[0]); }) || provZonas.includes(p.municipio);
+    return !p.comercial_asignado && enProvincia && p.estado_comercial !== 'Ganado' && p.estado_comercial !== 'Descartado';
+  });
+  
+  const urgOrder = { 'VERY HOT': 4, 'HOT': 3, 'WARM': 2, 'LOW': 1, 'ALTA': 4, 'MEDIA': 3, 'BAJA': 1 };
+  sinAsignar.sort(function(a, b) {
+    const sa = b.score_total || urgOrder[b.nivel_oportunidad || b.urgencia_contacto] || 0;
+    const sb = a.score_total || urgOrder[a.nivel_oportunidad || a.urgencia_contacto] || 0;
+    return sa - sb;
+  });
+  
+  if (sinAsignar.length === 0) { showToast('No hay promociones sin asignar en esta provincia'); return; }
+  if (comercialesSeleccionados.length === 0) { showToast('Selecciona al menos un comercial'); return; }
+  
+  // Round-robin assignment: 1st to A, 2nd to B, 3rd to C, 4th to A...
+  sinAsignar.forEach(function(p, i) {
+    p.comercial_asignado = comercialesSeleccionados[i % comercialesSeleccionados.length];
+  });
+  
+  await saveDB(db);
+  showToast(sinAsignar.length + ' promociones repartidas entre ' + comercialesSeleccionados.join(', '));
+  renderPromociones();
+  renderDashboard();
+}
+
+async function repartirAgenciasAleatorio(provincia, comercialesSeleccionados) {
+  const agencias = await getAgencias();
+  const provZonas = provincia === '__todas__' ? ALL_ZONES_FLAT : getZonasByProvincia(provincia);
+  
+  let sinAsignar = agencias.filter(function(a) {
+    return !a.comercial_asignado && provZonas.includes(a.zona);
+  });
+  // Sort by estrellas desc
+  sinAsignar.sort(function(a, b) { return (b.estrellas_kimbo||0) - (a.estrellas_kimbo||0); });
+  
+  if (sinAsignar.length === 0) { showToast('No hay agencias sin asignar en esta provincia'); return; }
+  sinAsignar.forEach(function(a, i) {
+    a.comercial_asignado = comercialesSeleccionados[i % comercialesSeleccionados.length];
+  });
+  
+  await saveAgencias(agencias);
+  showToast(sinAsignar.length + ' agencias repartidas entre ' + comercialesSeleccionados.join(', '));
+  renderViviendas();
+}
+
+async function repartirPrescriptoresAleatorio(provincia, comercialesSeleccionados) {
+  const partners = await getPartners();
+  const provZonas = provincia === '__todas__' ? ALL_ZONES_FLAT : getZonasByProvincia(provincia);
+  
+  let sinAsignar = partners.filter(function(p) {
+    return !p.comercial_asignado && provZonas.includes(p.zona);
+  });
+  // Sort by prioridad_kimbo desc
+  sinAsignar.sort(function(a, b) { return (b.prioridad_kimbo||0) - (a.prioridad_kimbo||0); });
+  
+  if (sinAsignar.length === 0) { showToast('No hay prescriptores sin asignar en esta provincia'); return; }
+  sinAsignar.forEach(function(p, i) {
+    p.comercial_asignado = comercialesSeleccionados[i % comercialesSeleccionados.length];
+  });
+  
+  await savePartners(partners);
+  showToast(sinAsignar.length + ' prescriptores repartidos entre ' + comercialesSeleccionados.join(', '));
+  renderPartners();
+}
+
+function showRepartoModal(tipo) {
+  const team = getTeam();
+  const existing = document.getElementById('reparto-modal');
+  if (existing) existing.remove();
+  
+  const modal = document.createElement('div');
+  modal.id = 'reparto-modal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center';
+  
+  const provOptions = PROVINCIAS.map(function(p) {
+    return '<option value="' + p.name + '">' + p.name + '</option>';
+  }).join('');
+  
+  const comercialChecks = team.map(function(m) {
+    return '<label style="display:flex;align-items:center;gap:8px;padding:6px 0;cursor:pointer"><input type="checkbox" value="' + m + '" checked style="width:16px;height:16px"> <span style="font-size:14px">' + m + '</span></label>';
+  }).join('');
+  
+  const tipoLabel = tipo === 'promociones' ? 'Promociones' : tipo === 'agencias' ? 'Agencias' : 'Prescriptores';
+  
+  modal.innerHTML = '<div style="background:var(--surface);border-radius:16px;padding:28px;width:380px;max-width:90vw;box-shadow:0 20px 60px rgba(0,0,0,0.3)">' +
+    '<h3 style="margin:0 0 20px;font-size:18px;color:var(--text)">🎲 Repartir ' + tipoLabel + '</h3>' +
+    '<div style="margin-bottom:16px">' +
+      '<label style="font-size:12px;font-weight:600;color:var(--text2);display:block;margin-bottom:6px">PROVINCIA</label>' +
+      '<select id="reparto-prov" class="form-control" style="width:100%">' +
+        '<option value="__todas__">Todas las provincias</option>' + provOptions +
+      '</select>' +
+    '</div>' +
+    '<div style="margin-bottom:20px">' +
+      '<label style="font-size:12px;font-weight:600;color:var(--text2);display:block;margin-bottom:8px">COMERCIALES</label>' +
+      '<div style="background:var(--bg);border-radius:8px;padding:10px 14px">' + comercialChecks + '</div>' +
+    '</div>' +
+    '<div style="background:#f0fdf4;border:1px solid #86efac;border-radius:8px;padding:10px 12px;margin-bottom:20px;font-size:12px;color:#166534">' +
+      '⚡ Solo se asignarán los <strong>sin comercial</strong>. Orden: mayor score primero, reparto rotativo.' +
+    '</div>' +
+    '<div style="display:flex;gap:10px">' +
+      '<button onclick="document.getElementById(\'reparto-modal\').remove()" class="btn btn-ghost" style="flex:1">Cancelar</button>' +
+      '<button data-tipo="_TIPO_" onclick="ejecutarReparto(this.dataset.tipo)" class="btn btn-primary" style="flex:1">🎲 Repartir</button>'.replace('_TIPO_', tipo) +
+    '</div>' +
+  '</div>';
+  
+  document.body.appendChild(modal);
+  modal.addEventListener('click', function(e) { if (e.target === modal) modal.remove(); });
+}
+
+async function ejecutarReparto(tipo) {
+  const prov = document.getElementById('reparto-prov')?.value || '__todas__';
+  const checks = document.querySelectorAll('#reparto-modal input[type=checkbox]:checked');
+  const comerciales = Array.from(checks).map(function(c) { return c.value; });
+  
+  document.getElementById('reparto-modal')?.remove();
+  
+  if (tipo === 'promociones') await repartirPromocionesAleatorio(prov, comerciales);
+  else if (tipo === 'agencias') await repartirAgenciasAleatorio(prov, comerciales);
+  else await repartirPrescriptoresAleatorio(prov, comerciales);
+}
+// ── FIN REPARTO ───────────────────────────────────────────────────
+
 async function callClaude(prompt, maxTokens = 4000) {
   const resp = await fetch('https://kimbo-proxy.vercel.app/api/proxy', {
     method: 'POST',
@@ -3256,7 +3405,13 @@ async function renderViviendas() {
   // Populate zona filter with ALL_ZONES_FLAT
   const vfZonaEl = document.getElementById('vf-zona');
   if (vfZonaEl && vfZonaEl.options.length <= 1) {
-    ALL_ZONES_FLAT.forEach(function(z) { const o = document.createElement('option'); o.value = z; o.textContent = z; vfZonaEl.appendChild(o); });
+    PROVINCIAS.forEach(function(prov) {
+      const og = document.createElement('optgroup'); og.label = '📍 ' + prov.name;
+      const op = document.createElement('option'); op.value = 'prov:' + prov.name; op.textContent = '🗺 Toda ' + prov.name;
+      og.appendChild(op);
+      prov.zones.forEach(function(z) { const o = document.createElement('option'); o.value = z; o.textContent = '  · ' + z; og.appendChild(o); });
+      vfZonaEl.appendChild(og);
+    });
   }
 
   const fZona = document.getElementById('vf-zona')?.value || '';
@@ -3267,7 +3422,14 @@ async function renderViviendas() {
   const fSearch = (document.getElementById('vf-search')?.value || '').toLowerCase();
 
   let filtered = agencias.filter(a => {
-    if (fZona && a.zona !== fZona) return false;
+    if (fZona) {
+      if (fZona.startsWith('prov:')) {
+        const provZonas = getZonasByProvincia(fZona.slice(5));
+        if (!provZonas.includes(a.zona)) return false;
+      } else {
+        if (a.zona !== fZona) return false;
+      }
+    }
     if (fEstado && a.estado !== fEstado) return false;
     if (fTipo && a.tipo !== fTipo) return false;
     if (fEstrellas && (a.estrellas_kimbo||0) < fEstrellas) return false;
@@ -4922,8 +5084,13 @@ async function renderPromociones() {
   // Populate zone filter
   const zonaEl = document.getElementById('promo-filtro-zona');
   if (zonaEl && zonaEl.options.length <= 1) {
-    const zones = [...new Set(db.map(p => p.municipio).filter(Boolean))].sort();
-    zones.forEach(z => { const o = document.createElement('option'); o.value = z; o.textContent = z; zonaEl.appendChild(o); });
+    PROVINCIAS.forEach(function(prov) {
+      const og = document.createElement('optgroup'); og.label = '📍 ' + prov.name;
+      const op = document.createElement('option'); op.value = 'prov:' + prov.name; op.textContent = '🗺 Toda ' + prov.name;
+      og.appendChild(op);
+      prov.zones.forEach(function(z) { const o = document.createElement('option'); o.value = z; o.textContent = '  · ' + z; og.appendChild(o); });
+      zonaEl.appendChild(og);
+    });
   }
   // Populate comercial filter
   const comEl = document.getElementById('promo-filtro-comercial');
@@ -4957,7 +5124,14 @@ async function renderPromociones() {
   if (fFuente) db = db.filter(p => p.fuente && p.fuente.includes(fFuente));
   const fLujo = document.getElementById('promo-filtro-lujo')?.value || '';
   if (fLujo) db = db.filter(function(p) { return p.lujo === fLujo; });
-  if (fZona) db = db.filter(p => p.municipio === fZona);
+  if (fZona) {
+    if (fZona.startsWith('prov:')) {
+      const provZonas = getZonasByProvincia(fZona.slice(5));
+      db = db.filter(function(p) { return provZonas.some(function(z) { return (p.municipio||'').includes(z.split(' ')[0]) || (p.zona_urbanizacion||'').includes(z.split(' ')[0]); }) || provZonas.includes(p.municipio); });
+    } else {
+      db = db.filter(p => p.municipio === fZona || (p.zona_urbanizacion||'') === fZona);
+    }
+  }
   if (fComercial) db = db.filter(p => p.comercial_asignado === fComercial);
   if (fEstado) db = db.filter(p => p.estado_comercial === fEstado);
   if (fDom) db = db.filter(p => p.lleva_domotica === fDom);
@@ -5345,7 +5519,15 @@ async function renderDashboard() {
     if (fUrgencia && (p._tipo === 'agencia' || p._tipo === 'partner')) return false;
     if (fEstado && p.estado_comercial !== fEstado) return false;
     if (fDom && p.lleva_domotica !== fDom) return false;
-    if (fZona && p.municipio !== fZona) return false;
+    if (fZona) {
+      if (fZona.startsWith('prov:')) {
+        const provZonas = getZonasByProvincia(fZona.slice(5));
+        const pZona = p.municipio || p.zona || '';
+        if (!provZonas.some(function(z) { return pZona.includes(z.split(' ')[0]); }) && !provZonas.includes(pZona)) return false;
+      } else {
+        if (p.municipio !== fZona && p.zona !== fZona) return false;
+      }
+    }
     const dashAgEstrellas = parseInt(document.getElementById('dash-ag-estrellas')?.value || '0');
     if (dashAgEstrellas && p._tipo === 'agencia' && (p.estrellas_kimbo||0) < dashAgEstrellas) return false;
     if (fEstrellas && p._tipo === 'agencia' && (p.estrellas_kimbo||0) < fEstrellas) return false;
@@ -6258,7 +6440,13 @@ async function renderPartners() {
 
   const zonaEl = document.getElementById('ptf-zona');
   if (zonaEl && zonaEl.options.length <= 1) {
-    ALL_ZONES_FLAT.forEach(function(z) { const o = document.createElement('option'); o.value = z; o.textContent = z; zonaEl.appendChild(o); });
+    PROVINCIAS.forEach(function(prov) {
+      const og = document.createElement('optgroup'); og.label = '📍 ' + prov.name;
+      const op = document.createElement('option'); op.value = 'prov:' + prov.name; op.textContent = '🗺 Toda ' + prov.name;
+      og.appendChild(op);
+      prov.zones.forEach(function(z) { const o = document.createElement('option'); o.value = z; o.textContent = '  · ' + z; og.appendChild(o); });
+      zonaEl.appendChild(og);
+    });
   }
   const comEl = document.getElementById('ptf-comercial');
   if (comEl && comEl.options.length <= 1) {
@@ -6271,7 +6459,14 @@ async function renderPartners() {
   if (pendEl) { pendEl.textContent = pending.length || ''; pendEl.style.display = pending.length > 0 ? 'inline' : 'none'; }
 
   const filtered = partners.filter(function(p) {
-    if (fZona && p.zona !== fZona) return false;
+    if (fZona) {
+      if (fZona.startsWith('prov:')) {
+        const provZonas = getZonasByProvincia(fZona.slice(5));
+        if (!provZonas.includes(p.zona)) return false;
+      } else {
+        if (p.zona !== fZona) return false;
+      }
+    }
     if (fTipo && p.tipo !== fTipo) return false;
     if (fPrioridad && (p.prioridad_kimbo||0) < fPrioridad) return false;
     if (fEstado && p.estado !== fEstado) return false;
@@ -7303,6 +7498,8 @@ function renderPanelGenerico(el, data, tipo) {
   window.fusionarPromociones = fusionarPromociones;
   window.aplicarAutomatizaciones = aplicarAutomatizaciones;
   window.setDashQuickFilter = setDashQuickFilter;
+  window.showRepartoModal = showRepartoModal;
+  window.ejecutarReparto = ejecutarReparto;
   window.checkBillingErrorGuard = checkBillingErrorGuard;
   window.clearBillingError = clearBillingError;
   window.showBillingWarningIfNeeded = showBillingWarningIfNeeded;
@@ -7333,7 +7530,6 @@ if (document.readyState === 'loading') {
 } else {
   kimboInit();
 }
-
 </script>
 </body>
 </html>
