@@ -3144,8 +3144,8 @@ async function repartirPrescriptoresAleatorio(provincia, comercialesSeleccionado
   renderPartners();
 }
 
-function showRepartoModal(tipo) {
-  const team = getTeam();
+async function showRepartoModal(tipo) {
+  const team = (await getTeam()) || ['Ferni', 'Malu', 'Gonzalo', 'Héctor'];
   const existing = document.getElementById('reparto-modal');
   if (existing) existing.remove();
   
@@ -3433,7 +3433,10 @@ async function renderViviendas() {
     if (fEstado && a.estado !== fEstado) return false;
     if (fTipo && a.tipo !== fTipo) return false;
     if (fEstrellas && (a.estrellas_kimbo||0) < fEstrellas) return false;
-    if (fComercial && a.comercial_asignado !== fComercial) return false;
+    if (fComercial) {
+      if (fComercial === '__sin__') { if (a.comercial_asignado && a.comercial_asignado !== '') return false; }
+      else if (a.comercial_asignado !== fComercial) return false;
+    }
     if (fSearch && !(a.nombre||'').toLowerCase().includes(fSearch) &&
         !(a.zona||'').toLowerCase().includes(fSearch) &&
         !(a.notas||'').toLowerCase().includes(fSearch)) return false;
@@ -5133,7 +5136,10 @@ async function renderPromociones() {
       db = db.filter(p => p.municipio === fZona || (p.zona_urbanizacion||'') === fZona);
     }
   }
-  if (fComercial) db = db.filter(p => p.comercial_asignado === fComercial);
+  if (fComercial) {
+    if (fComercial === '__sin__') db = db.filter(function(p) { return !p.comercial_asignado || p.comercial_asignado === ''; });
+    else db = db.filter(function(p) { return p.comercial_asignado === fComercial; });
+  }
   if (fEstado) db = db.filter(p => p.estado_comercial === fEstado);
   if (fDom) db = db.filter(p => p.lleva_domotica === fDom);
   if (fPrecio) {
@@ -6471,7 +6477,10 @@ async function renderPartners() {
     if (fTipo && p.tipo !== fTipo) return false;
     if (fPrioridad && (p.prioridad_kimbo||0) < fPrioridad) return false;
     if (fEstado && p.estado !== fEstado) return false;
-    if (fComercial && p.comercial_asignado !== fComercial) return false;
+    if (fComercial) {
+      if (fComercial === '__sin__') { if (p.comercial_asignado && p.comercial_asignado !== '') return false; }
+      else if (p.comercial_asignado !== fComercial) return false;
+    }
     if (fSearch && !(p.nombre||'').toLowerCase().includes(fSearch) && !(p.zona||'').toLowerCase().includes(fSearch) && !(p.notas||'').toLowerCase().includes(fSearch)) return false;
     if (fNivel && p.nivel !== fNivel) return false;
     return true;
