@@ -5095,7 +5095,8 @@ async function renderPromociones() {
   // Populate comercial filter
   const comEl = document.getElementById('promo-filtro-comercial');
   if (comEl && comEl.options.length <= 1) {
-    team.forEach(m => { const o = document.createElement('option'); o.value = m; o.textContent = m; comEl.appendChild(o); });
+    team.forEach(function(m) { const o = document.createElement('option'); o.value = m; o.textContent = m; comEl.appendChild(o); });
+    const oSin = document.createElement('option'); oSin.value = '__sin__'; oSin.textContent = '⚠️ Sin asignar'; comEl.appendChild(oSin);
   }
 
   if (activeFilter === 'VERY HOT') db = db.filter(function(p) { return p.nivel_oportunidad === 'VERY HOT' || (p.urgencia_contacto === 'ALTA' && !p.nivel_oportunidad); });
